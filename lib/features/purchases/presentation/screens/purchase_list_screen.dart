@@ -22,12 +22,6 @@ class _PurchaseListScreenState extends State<PurchaseListScreen> {
   }
 
   @override
-  void dispose() {
-    _bloc.close();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return BlocProvider<TransactionBloc>.value(
       value: _bloc,

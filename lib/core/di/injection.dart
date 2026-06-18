@@ -440,12 +440,13 @@ class PosState extends Equatable {
     }
     return discount;
   }
+
   double get tax {
     final taxable = subtotal - discountAmount;
-    final taxRate =
-        (posSettings?['default_tax_rate'] as num?)?.toDouble() ?? 0;
+    final taxRate = _toDouble(posSettings?['default_tax_rate']);
     return taxable * taxRate / 100;
   }
+
   double get total => subtotal - discountAmount + tax;
 
   PosState copyWith({
@@ -539,21 +540,34 @@ class ValidateCartEvent extends PosEvent {}
 class SubmitSaleEvent extends PosEvent {
   final double paidAmount;
   final String paymentMethod;
+  final List<Map<String, dynamic>>? payments;
   final String? paymentStatus;
   final int? accountId;
   SubmitSaleEvent(
       {required this.paidAmount,
       required this.paymentMethod,
+      this.payments,
       this.paymentStatus,
       this.accountId});
   @override
   List<Object?> get props =>
-      [paidAmount, paymentMethod, paymentStatus, accountId];
+      [paidAmount, paymentMethod, payments, paymentStatus, accountId];
 }
 
 class ClearCartEvent extends PosEvent {}
 
 class ResetPosEvent extends PosEvent {}
+
+double _toDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value.replaceAll(',', '')) ?? 0;
+  if (value is Map) {
+    for (final key in const ['amount', 'value', 'rate', 'default_tax_rate']) {
+      if (value.containsKey(key)) return _toDouble(value[key]);
+    }
+  }
+  return 0;
+}
 
 class PosBloc extends Bloc<Object, PosState> {
   final PosRepository _repo;
@@ -608,8 +622,8 @@ class PosBloc extends Bloc<Object, PosState> {
 
   void _onUpdateQty(UpdateCartItemQtyEvent e, Emitter<PosState> emit) {
     final items = List<CartItem>.from(state.items);
-    final idx = items.indexWhere((i) =>
-        i.productId == e.productId && i.variationId == e.variationId);
+    final idx = items.indexWhere(
+        (i) => i.productId == e.productId && i.variationId == e.variationId);
     if (idx >= 0) {
       if (e.quantity <= 0) {
         items.removeAt(idx);
@@ -682,14 +696,15 @@ class PosBloc extends Bloc<Object, PosState> {
         'discount_type': state.discountType,
         'discount_amount': state.discount,
         'tax_rate_id': state.taxRateId,
-        'payments': [
-          {
-            'method': e.paymentMethod,
-            'amount': e.paidAmount,
-            'paid_on': DateTime.now().toIso8601String(),
-            'account_id': e.accountId ?? 1,
-          }
-        ],
+        'payments': e.payments ??
+            [
+              {
+                'method': e.paymentMethod,
+                'amount': e.paidAmount,
+                'paid_on': DateTime.now().toIso8601String(),
+                'account_id': e.accountId ?? 1,
+              }
+            ],
         'is_suspend': false,
         'shipping_charges': 0,
       };

@@ -24,14 +24,7 @@ class MoneyFormatter {
   }
 
   String format(dynamic amount) {
-    double value;
-    if (amount is String) {
-      value = double.tryParse(amount) ?? 0.0;
-    } else if (amount is int) {
-      value = amount.toDouble();
-    } else {
-      value = (amount as num?)?.toDouble() ?? 0.0;
-    }
+    final value = _toDouble(amount);
 
     final formatter = NumberFormat(
       '#,##0.${'0' * _decimalDigits}',
@@ -41,14 +34,7 @@ class MoneyFormatter {
   }
 
   String formatWithoutSymbol(dynamic amount) {
-    double value;
-    if (amount is String) {
-      value = double.tryParse(amount) ?? 0.0;
-    } else if (amount is int) {
-      value = amount.toDouble();
-    } else {
-      value = (amount as num?)?.toDouble() ?? 0.0;
-    }
+    final value = _toDouble(amount);
 
     final formatter = NumberFormat(
       '#,##0.${'0' * _decimalDigits}',
@@ -71,5 +57,34 @@ class MoneyFormatter {
     _currencySymbol = '\$';
     _decimalDigits = 2;
     _thousandSeparator = ',';
+  }
+
+  double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value.replaceAll(',', '').trim()) ?? 0.0;
+    }
+    if (value is Map) {
+      for (final key in const [
+        'amount',
+        'total',
+        'value',
+        'final_total',
+        'total_amount',
+        'sum',
+      ]) {
+        if (value.containsKey(key)) return _toDouble(value[key]);
+      }
+      for (final entryValue in value.values) {
+        final parsed = _toDouble(entryValue);
+        if (parsed != 0) return parsed;
+      }
+      return 0.0;
+    }
+    if (value is Iterable) {
+      return value.fold<double>(0.0, (sum, item) => sum + _toDouble(item));
+    }
+    return 0.0;
   }
 }

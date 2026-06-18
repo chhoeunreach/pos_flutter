@@ -269,7 +269,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildSummaryGrid(Map<String, dynamic> d) {
-    final lowStockCount = d['low_stock_count'] as int? ?? 0;
+    final lowStockCount = _asInt(d['low_stock_count']) ?? 0;
     return GridView.count(
       crossAxisCount: MediaQuery.of(context).size.width < 600 ? 2 : 3,
       shrinkWrap: true,
@@ -325,7 +325,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildLowStockSection(Map<String, dynamic> d) {
-    final count = d['low_stock_count'] as int? ?? 0;
+    final count = _asInt(d['low_stock_count']) ?? 0;
     if (count == 0) return const SizedBox.shrink();
     return AppCard(
       color: Colors.red.shade50,
