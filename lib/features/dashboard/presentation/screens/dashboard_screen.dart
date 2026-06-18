@@ -18,12 +18,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime? _startDate;
   DateTime? _endDate;
   String _selectedRange = 'month';
+  late final DashboardBloc _dashboardBloc;
 
   @override
   void initState() {
     super.initState();
+    _dashboardBloc = sl<DashboardBloc>();
     _applyRange('month');
   }
+
 
   void _applyRange(String range) {
     final now = DateTime.now();
@@ -62,7 +65,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _load() {
-    sl<DashboardBloc>().add(LoadDashboardEvent(
+    _dashboardBloc.add(LoadDashboardEvent(
       startDate: _startDate,
       endDate: _endDate,
     ));
@@ -78,8 +81,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<DashboardBloc>(
-      create: (_) => sl<DashboardBloc>(),
+    return BlocProvider<DashboardBloc>.value(
+      value: _dashboardBloc,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Dashboard'),

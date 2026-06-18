@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/di/injection.dart';
@@ -16,6 +18,7 @@ class PosScreen extends StatefulWidget {
 class _PosScreenState extends State<PosScreen> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _productScrollController = ScrollController();
+  Timer? _searchDebounce;
   bool _showCart = false;
 
   @override
@@ -29,6 +32,7 @@ class _PosScreenState extends State<PosScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     _productScrollController.dispose();
     super.dispose();
@@ -82,13 +86,17 @@ class _PosScreenState extends State<PosScreen> {
             ? IconButton(icon: const Icon(Icons.clear), onPressed: () { _searchController.clear(); _loadProducts(); })
             : null,
       ),
-      onChanged: (v) => sl<ProductBloc>().add(LoadProductsEvent(search: v)),
+      onChanged: (v) {
+        _searchDebounce?.cancel();
+        _searchDebounce =
+            Timer(const Duration(milliseconds: 400), () => sl<ProductBloc>().add(LoadProductsEvent(search: v)));
+      },
     ),
   );
 
   Widget _buildProductGrid() {
-    return BlocProvider<ProductBloc>(
-      create: (_) => sl<ProductBloc>(),
+    return BlocProvider<ProductBloc>.value(
+      value: sl<ProductBloc>(),
       child: BlocBuilder<ProductBloc, ProductState>(builder: (context, state) {
         if (state.isLoading) return const LoadingWidget();
         if (state.error != null) return AppErrorWidget(message: state.error!, onRetry: _loadProducts);

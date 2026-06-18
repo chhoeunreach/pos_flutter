@@ -1,31 +1,49 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'router.dart';
 import '../core/di/injection.dart';
 import '../core/utils/money_formatter.dart';
 import 'theme.dart';
 
-class PosApp extends StatelessWidget {
+class PosApp extends StatefulWidget {
   const PosApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final authBloc = sl<AuthBloc>();
-    authBloc.add(CheckAuthEvent());
-    final router = createAppRouter(authBloc);
-    final settingsBloc = sl<SettingsBloc>();
-    settingsBloc.add(LoadSettingsEvent());
+  State<PosApp> createState() => _PosAppState();
+}
 
+class _PosAppState extends State<PosApp> {
+  late final AuthBloc _authBloc;
+  late final SettingsBloc _settingsBloc;
+  late final GoRouter _router;
+
+  @override
+  void initState() {
+    super.initState();
+    _authBloc = sl<AuthBloc>()..add(CheckAuthEvent());
+    _settingsBloc = sl<SettingsBloc>()..add(LoadSettingsEvent());
+    _router = createAppRouter(_authBloc);
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
     return MultiBlocProvider(
       providers: [
-        BlocProvider<AuthBloc>(create: (_) => authBloc),
-        BlocProvider<SettingsBloc>(create: (_) => settingsBloc),
+        BlocProvider<AuthBloc>.value(value: _authBloc),
+        BlocProvider<SettingsBloc>.value(value: _settingsBloc),
       ],
       child: BlocBuilder<SettingsBloc, SettingsState>(
         builder: (context, settingsState) {
           if (settingsState.settings != null) {
+            final data = settingsState.settings!['data']
+                as Map<String, dynamic>? ??
+                {};
+            final business =
+                data['business'] as Map<String, dynamic>? ?? {};
             final currency =
-                settingsState.settings!['currency'] as Map<String, dynamic>?;
+                business['currency'] as Map<String, dynamic>?;
             if (currency != null) {
               MoneyFormatter.instance.configure(
                 currencySymbol: currency['symbol'] as String? ?? '\$',
@@ -40,7 +58,7 @@ class PosApp extends StatelessWidget {
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
             themeMode: ThemeMode.light,
-            routerConfig: router,
+            routerConfig: _router,
           );
         },
       ),

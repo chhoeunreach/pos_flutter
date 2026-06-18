@@ -51,8 +51,8 @@ class _TodoListScreenState extends State<TodoListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<TodoBloc>(
-      create: (_) => sl<TodoBloc>(),
+    return BlocProvider<TodoBloc>.value(
+      value: sl<TodoBloc>(),
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Todos'),

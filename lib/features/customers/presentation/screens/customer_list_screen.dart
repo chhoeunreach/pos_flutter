@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +17,7 @@ class CustomerListScreen extends StatefulWidget {
 
 class _CustomerListScreenState extends State<CustomerListScreen> {
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -24,13 +27,14 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<ContactBloc>(create: (_) => sl<ContactBloc>(),
+    return BlocProvider<ContactBloc>.value(value: sl<ContactBloc>(),
       child: Scaffold(
         appBar: AppBar(title: const Text('Customers'), actions: [IconButton(icon: const Icon(Icons.add), onPressed: () => context.go('/customers/create'))]),
         body: Column(children: [
@@ -38,7 +42,11 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
             controller: _searchController,
             decoration: InputDecoration(hintText: 'Search by name, phone, or ID...', prefixIcon: const Icon(Icons.search),
               suffixIcon: _searchController.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear), onPressed: () { _searchController.clear(); sl<ContactBloc>().add(LoadCustomersEvent()); }) : null),
-            onChanged: (v) => sl<ContactBloc>().add(LoadCustomersEvent(search: v)),
+            onChanged: (v) {
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 400),
+                  () => sl<ContactBloc>().add(LoadCustomersEvent(search: v)));
+            },
           )),
           Expanded(child: BlocBuilder<ContactBloc, ContactState>(builder: (context, state) {
             if (state.isLoading) return const LoadingWidget();

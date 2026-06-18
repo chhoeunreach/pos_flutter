@@ -38,17 +38,17 @@ Future<void> initDependencies() async {
       () => SettingsRepositoryImpl(sl<ApiClient>()));
   sl.registerLazySingleton<TodoRepository>(() => HiveTodoRepository());
 
-  sl.registerFactory(() => AuthBloc(sl()));
-  sl.registerFactory(() => DashboardBloc(sl()));
-  sl.registerFactory(() => PosBloc(sl()));
-  sl.registerFactory(() => ProductBloc(sl()));
-  sl.registerFactory(() => ContactBloc(sl()));
-  sl.registerFactory(() => TransactionBloc(sl()));
-  sl.registerFactory(() => StockBloc(sl()));
-  sl.registerFactory(() => PaymentBloc(sl()));
-  sl.registerFactory(() => ReportBloc(sl()));
-  sl.registerFactory(() => SettingsBloc(sl()));
-  sl.registerFactory(() => TodoBloc(sl()));
+  sl.registerLazySingleton<AuthBloc>(() => AuthBloc(sl()));
+  sl.registerLazySingleton<DashboardBloc>(() => DashboardBloc(sl()));
+  sl.registerLazySingleton<PosBloc>(() => PosBloc(sl()));
+  sl.registerLazySingleton<ProductBloc>(() => ProductBloc(sl()));
+  sl.registerLazySingleton<ContactBloc>(() => ContactBloc(sl()));
+  sl.registerLazySingleton<TransactionBloc>(() => TransactionBloc(sl()));
+  sl.registerLazySingleton<StockBloc>(() => StockBloc(sl()));
+  sl.registerLazySingleton<PaymentBloc>(() => PaymentBloc(sl()));
+  sl.registerLazySingleton<ReportBloc>(() => ReportBloc(sl()));
+  sl.registerLazySingleton<SettingsBloc>(() => SettingsBloc(sl()));
+  sl.registerLazySingleton<TodoBloc>(() => TodoBloc(sl()));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -243,7 +243,7 @@ class AuthBloc extends Bloc<Object, AuthState> {
     } catch (e, stack) {
       debugPrint('Server check failed: $e');
       debugPrintStack(stackTrace: stack);
-      emit(state.copyWith(isServerConnected: false, error: e.toString()));
+      emit(state.copyWith(isServerConnected: false));
     }
   }
 
@@ -434,9 +434,19 @@ class PosState extends Equatable {
   });
 
   double get subtotal => items.fold(0, (s, i) => s + i.lineTotal);
-  double get discountAmount => discount;
-  double get tax => (subtotal - discount) * 10 / 100;
-  double get total => subtotal - discount + tax;
+  double get discountAmount {
+    if (discountType == 'percentage') {
+      return subtotal * discount / 100;
+    }
+    return discount;
+  }
+  double get tax {
+    final taxable = subtotal - discountAmount;
+    final taxRate =
+        (posSettings?['default_tax_rate'] as num?)?.toDouble() ?? 0;
+    return taxable * taxRate / 100;
+  }
+  double get total => subtotal - discountAmount + tax;
 
   PosState copyWith({
     List<CartItem>? items,
@@ -494,17 +504,19 @@ class AddToCartEvent extends PosEvent {
 
 class RemoveFromCartEvent extends PosEvent {
   final int productId;
-  RemoveFromCartEvent(this.productId);
+  final int variationId;
+  RemoveFromCartEvent(this.productId, {this.variationId = 0});
   @override
-  List<Object?> get props => [productId];
+  List<Object?> get props => [productId, variationId];
 }
 
 class UpdateCartItemQtyEvent extends PosEvent {
   final int productId;
+  final int variationId;
   final double quantity;
-  UpdateCartItemQtyEvent(this.productId, this.quantity);
+  UpdateCartItemQtyEvent(this.productId, this.quantity, {this.variationId = 0});
   @override
-  List<Object?> get props => [productId, quantity];
+  List<Object?> get props => [productId, variationId, quantity];
 }
 
 class SetCustomerEvent extends PosEvent {
@@ -549,7 +561,10 @@ class PosBloc extends Bloc<Object, PosState> {
     on<LoadPosSettingsEvent>(_onLoadSettings);
     on<AddToCartEvent>(_onAddToCart);
     on<RemoveFromCartEvent>((e, emit) => emit(state.copyWith(
-        items: state.items.where((i) => i.productId != e.productId).toList(),
+        items: state.items
+            .where((i) =>
+                i.productId != e.productId || i.variationId != e.variationId)
+            .toList(),
         validatedTotals: null,
         saleResult: null)));
     on<UpdateCartItemQtyEvent>(_onUpdateQty);
@@ -593,7 +608,8 @@ class PosBloc extends Bloc<Object, PosState> {
 
   void _onUpdateQty(UpdateCartItemQtyEvent e, Emitter<PosState> emit) {
     final items = List<CartItem>.from(state.items);
-    final idx = items.indexWhere((i) => i.productId == e.productId);
+    final idx = items.indexWhere((i) =>
+        i.productId == e.productId && i.variationId == e.variationId);
     if (idx >= 0) {
       if (e.quantity <= 0) {
         items.removeAt(idx);

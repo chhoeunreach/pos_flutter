@@ -27,8 +27,6 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _refController = TextEditingController();
   final _notesController = TextEditingController();
-  final _discountController = TextEditingController(text: '0');
-  final _shippingController = TextEditingController(text: '0');
   final _paymentAmountController = TextEditingController(text: '0');
   final _paymentNoteController = TextEditingController();
 
@@ -61,8 +59,6 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   void dispose() {
     _refController.dispose();
     _notesController.dispose();
-    _discountController.dispose();
-    _shippingController.dispose();
     _paymentAmountController.dispose();
     _paymentNoteController.dispose();
     for (final row in _productRows) {
@@ -200,7 +196,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     final now = DateTime.now();
     final isFastDuplicate = row.lastScannedLot == code &&
         row.lastScannedAt != null &&
-        now.difference(row.lastScannedAt!) < const Duration(seconds: 2);
+        now.difference(row.lastScannedAt!) < const Duration(seconds: 1);
     if (isFastDuplicate) return;
 
     row.lastScannedLot = code;
@@ -215,13 +211,15 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     });
   }
 
+  void _duplicateLot(int productIndex, int lotIndex) {
+    setState(() {
+      _productRows[productIndex].duplicateLot(lotIndex);
+    });
+  }
+
   double get _subtotal => _productRows.fold(0, (s, r) => s + r.lotsTotal);
 
-  double get _discountAmount => double.tryParse(_discountController.text) ?? 0;
-
-  double get _shipping => double.tryParse(_shippingController.text) ?? 0;
-
-  double get _total => _subtotal - _discountAmount + _shipping;
+  double get _total => _subtotal;
 
   double get _paymentAmount =>
       double.tryParse(_paymentAmountController.text) ?? 0;
@@ -283,9 +281,9 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
           ? null
           : _refController.text.trim(),
       'discount_type': 'fixed',
-      'discount_amount': _discountAmount,
+      'discount_amount': 0,
       'tax_id': null,
-      'shipping_charges': _shipping,
+      'shipping_charges': 0,
       'additional_notes': _notesController.text.trim(),
       'products': products,
       if (payments.isNotEmpty) 'payments': payments,
@@ -528,7 +526,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('New Purchase')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
         child: Form(
           key: _formKey,
           child: Column(
@@ -556,15 +554,13 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                 const SizedBox(height: 16),
               ],
               _buildHeaderSection(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 14),
               _buildProductsSection(),
-              const SizedBox(height: 24),
-              _buildTotalsSection(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 14),
               _buildPaymentSection(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               SizedBox(
-                height: 50,
+                height: 48,
                 child: ElevatedButton.icon(
                   onPressed: _isSaving ? null : _submit,
                   icon: _isSaving
@@ -576,7 +572,6 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                   label: Text(_isSaving ? 'Saving...' : 'Create Purchase'),
                 ),
               ),
-              const SizedBox(height: 32),
             ],
           ),
         ),
@@ -593,8 +588,9 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
       }
     }
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -607,8 +603,11 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text('Invoice Details',
-                          style: Theme.of(context).textTheme.titleMedium),
+                      child: Text('Purchase Details',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700)),
                     ),
                     if (!_invoiceDetailsExpanded)
                       Expanded(
@@ -632,91 +631,154 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
               ),
             ),
             if (_invoiceDetailsExpanded) ...[
-              const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      key: ValueKey(
-                          'supplier-$_supplierId-${_suppliers.length}'),
-                      initialValue: _supplierId,
-                      isExpanded: true,
-                      menuMaxHeight: 360,
+              const SizedBox(height: 12),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 720;
+                  final supplierField = Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          key: ValueKey(
+                              'supplier-$_supplierId-${_suppliers.length}'),
+                          initialValue: _supplierId,
+                          isExpanded: true,
+                          menuMaxHeight: 360,
+                          decoration: const InputDecoration(
+                            labelText: 'Supplier *',
+                            prefixIcon: Icon(Icons.person, size: 20),
+                            isDense: true,
+                          ),
+                          items: _suppliers
+                              .map((s) => DropdownMenuItem(
+                                    value: _asInt(s['id']),
+                                    child: Text(_supplierLabel(s)),
+                                  ))
+                              .where((item) => item.value != null)
+                              .toList(),
+                          onChanged: (v) => setState(() => _supplierId = v),
+                          validator: (v) => v == null ? 'Required' : null,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        height: 48,
+                        width: 48,
+                        child: FilledButton(
+                          onPressed: _showAddSupplierDialog,
+                          style: FilledButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8))),
+                          child: const Icon(Icons.add, size: 20),
+                        ),
+                      ),
+                    ],
+                  );
+                  final locationField = DropdownButtonFormField<int>(
+                    initialValue: _locationId,
+                    isExpanded: true,
+                    menuMaxHeight: 320,
+                    decoration: const InputDecoration(
+                      labelText: 'Location *',
+                      prefixIcon: Icon(Icons.store, size: 20),
+                      isDense: true,
+                    ),
+                    items: _locations
+                        .map((l) => DropdownMenuItem(
+                              value: l['id'] as int,
+                              child: Text(l['name'] as String? ?? ''),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setState(() => _locationId = v),
+                    validator: (v) => v == null ? 'Required' : null,
+                  );
+                  final dateField = InkWell(
+                    onTap: _pickDate,
+                    child: InputDecorator(
                       decoration: const InputDecoration(
-                          labelText: 'Supplier *',
-                          prefixIcon: Icon(Icons.person)),
-                      items: _suppliers
-                          .map((s) => DropdownMenuItem(
-                                value: _asInt(s['id']),
-                                child: Text(_supplierLabel(s)),
-                              ))
-                          .where((item) => item.value != null)
-                          .toList(),
-                      onChanged: (v) => setState(() => _supplierId = v),
-                      validator: (v) => v == null ? 'Required' : null,
+                        labelText: 'Purchase Date',
+                        prefixIcon: Icon(Icons.calendar_today, size: 20),
+                        isDense: true,
+                      ),
+                      child: Text(
+                        DateFormat('yyyy-MM-dd').format(_transactionDate),
+                        style: const TextStyle(fontSize: 14),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    height: 56,
-                    child: FilledButton(
-                      onPressed: _showAddSupplierDialog,
-                      child: const Icon(Icons.add),
+                  );
+                  final refField = TextFormField(
+                    controller: _refController,
+                    decoration: const InputDecoration(
+                      labelText: 'Reference No',
+                      prefixIcon: Icon(Icons.tag, size: 20),
+                      isDense: true,
                     ),
-                  ),
-                ],
+                  );
+                  final statusField = DropdownButtonFormField<String>(
+                    initialValue: _status,
+                    decoration: const InputDecoration(
+                      labelText: 'Status',
+                      isDense: true,
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'received', child: Text('Received')),
+                      DropdownMenuItem(
+                          value: 'ordered', child: Text('Ordered')),
+                      DropdownMenuItem(
+                          value: 'pending', child: Text('Pending')),
+                    ],
+                    onChanged: (v) => setState(() => _status = v ?? 'received'),
+                  );
+
+                  if (!isWide) {
+                    return Column(
+                      children: [
+                        supplierField,
+                        const SizedBox(height: 10),
+                        locationField,
+                        const SizedBox(height: 10),
+                        dateField,
+                        const SizedBox(height: 10),
+                        refField,
+                        const SizedBox(height: 10),
+                        statusField,
+                      ],
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: supplierField),
+                          const SizedBox(width: 10),
+                          Expanded(child: locationField),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(child: dateField),
+                          const SizedBox(width: 10),
+                          Expanded(child: refField),
+                          const SizedBox(width: 10),
+                          Expanded(child: statusField),
+                        ],
+                      ),
+                    ],
+                  );
+                },
               ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<int>(
-                initialValue: _locationId,
-                isExpanded: true,
-                menuMaxHeight: 320,
-                decoration: const InputDecoration(
-                    labelText: 'Location *', prefixIcon: Icon(Icons.store)),
-                items: _locations
-                    .map((l) => DropdownMenuItem(
-                          value: l['id'] as int,
-                          child: Text(l['name'] as String? ?? ''),
-                        ))
-                    .toList(),
-                onChanged: (v) => setState(() => _locationId = v),
-                validator: (v) => v == null ? 'Required' : null,
-              ),
-              const SizedBox(height: 12),
-              InkWell(
-                onTap: _pickDate,
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                      labelText: 'Purchase Date',
-                      prefixIcon: Icon(Icons.calendar_today)),
-                  child:
-                      Text(DateFormat('yyyy-MM-dd').format(_transactionDate)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _refController,
-                decoration: const InputDecoration(
-                    labelText: 'Reference No', prefixIcon: Icon(Icons.tag)),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _status,
-                decoration: const InputDecoration(labelText: 'Status'),
-                items: const [
-                  DropdownMenuItem(value: 'received', child: Text('Received')),
-                  DropdownMenuItem(value: 'ordered', child: Text('Ordered')),
-                  DropdownMenuItem(value: 'pending', child: Text('Pending')),
-                ],
-                onChanged: (v) => setState(() => _status = v ?? 'received'),
-              ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               TextFormField(
                 controller: _notesController,
                 decoration: const InputDecoration(
                     labelText: 'Additional Notes',
-                    prefixIcon: Icon(Icons.notes)),
+                    prefixIcon: Icon(Icons.notes, size: 20),
+                    isDense: true),
                 maxLines: 2,
               ),
             ],
@@ -727,43 +789,71 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   }
 
   Widget _buildProductsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-                child: Text('Products',
-                    style: Theme.of(context).textTheme.titleLarge)),
-            FilledButton.icon(
-              onPressed: _showProductSearch,
-              icon: const Icon(Icons.add),
-              label: const Text('Add Product'),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Products',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: _showProductSearch,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 10),
+            if (_productRows.isEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 28),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey[300]!),
+                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.grey[50],
+                ),
+                child: Center(
+                  child: Text('No products added yet',
+                      style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                ),
+              ),
+            ..._productRows
+                .asMap()
+                .entries
+                .map((entry) => _buildProductCard(entry.key, entry.value)),
           ],
         ),
-        const SizedBox(height: 8),
-        if (_productRows.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(32),
-            child: Center(
-              child: Text('No products added yet',
-                  style: TextStyle(color: Colors.grey[500])),
-            ),
-          ),
-        ..._productRows
-            .asMap()
-            .entries
-            .map((entry) => _buildProductCard(entry.key, entry.value)),
-      ],
+      ),
     );
   }
 
   Widget _buildProductCard(int index, _ProductRow row) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: Colors.grey[300]!),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -774,19 +864,28 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(row.productName,
-                          style: Theme.of(context).textTheme.titleMedium),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700)),
                       Text('SKU: ${row.sku}  |  ${row.unit}',
                           style:
                               TextStyle(color: Colors.grey[600], fontSize: 12)),
                     ],
                   ),
                 ),
-                TextButton.icon(
+                IconButton(
                   onPressed: () => _toggleLotScanner(index),
-                  icon: const Icon(Icons.qr_code_scanner, size: 18),
-                  label: Text(row.isScanningLot ? 'Hide Scan' : 'Scan Lot'),
+                  icon: Icon(row.isScanningLot
+                      ? Icons.qr_code_scanner
+                      : Icons.qr_code_scanner_outlined),
+                  tooltip: row.isScanningLot ? 'Hide scanner' : 'Scan lot',
+                  visualDensity: VisualDensity.compact,
                 ),
                 PopupMenuButton<String>(
+                  tooltip: 'Product actions',
                   onSelected: (v) {
                     if (v == 'change') _showProductSearch(initialIndex: index);
                     if (v == 'remove') _removeProduct(index);
@@ -800,10 +899,10 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             if (row.isScanningLot) ...[
               _buildInlineLotScanner(index, row),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
             ],
             if (row.lots.isEmpty)
               Padding(
@@ -814,32 +913,39 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
               ),
             ...row.lots.asMap().entries.map((lotEntry) =>
                 _buildLotCard(index, lotEntry.key, lotEntry.value)),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => _addLot(index),
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('Add Lot'),
-            ),
-            if (row.lotsTotal > 0) ...[
-              const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 4,
-                  alignment: WrapAlignment.end,
-                  children: [
-                    Text('Qty: ${_formatQty(row.totalQuantity)} ${row.unit}',
-                        style: TextStyle(color: Colors.grey[700])),
-                    Text(
-                        'Product total: ${MoneyFormatter.instance.format(row.lotsTotal)}',
-                        style: TextStyle(
-                            color: Colors.grey[700],
-                            fontWeight: FontWeight.w600)),
-                  ],
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _addLot(index),
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Row'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 36),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    visualDensity: VisualDensity.compact,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Qty ${_formatQty(row.totalQuantity)} ${row.unit}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  MoneyFormatter.instance.format(row.lotsTotal),
+                  style: TextStyle(
+                    color: Colors.grey[850],
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -849,21 +955,18 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   Widget _buildLotCard(int productIndex, int lotIndex, _LotRow lot) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 560;
         return Container(
-          margin: const EdgeInsets.only(bottom: 10),
+          margin: const EdgeInsets.only(bottom: 8),
           decoration: BoxDecoration(
             border: Border.all(color: Colors.grey[300]!),
             borderRadius: BorderRadius.circular(8),
-            color: Colors.white,
+            color: Colors.grey[50],
           ),
-          padding: const EdgeInsets.all(12),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: math.max(constraints.maxWidth - 24, 650),
-              child: _buildWideLotRow(productIndex, lotIndex, lot),
-            ),
-          ),
+          padding: const EdgeInsets.all(8),
+          child: isCompact
+              ? _buildCompactLotRow(productIndex, lotIndex, lot)
+              : _buildWideLotRow(productIndex, lotIndex, lot),
         );
       },
     );
@@ -877,29 +980,59 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
         const SizedBox(width: 8),
         Expanded(flex: 4, child: _lotNumberField(productIndex, lotIndex, lot)),
         const SizedBox(width: 8),
-        Expanded(child: _qtyField(lot)),
+        SizedBox(width: 86, child: _qtyField(lot)),
         const SizedBox(width: 8),
-        Expanded(child: _priceField(lot)),
+        SizedBox(width: 112, child: _priceField(lot)),
         const SizedBox(width: 8),
-        SizedBox(width: 128, height: 48, child: _lotTotal(lot)),
+        SizedBox(width: 116, height: 44, child: _lotTotal(lot)),
         const SizedBox(width: 4),
         _lotActions(productIndex, lotIndex, lot),
       ],
     );
   }
 
-  Widget _lotIndexBadge(int lotIndex) {
+  Widget _buildCompactLotRow(int productIndex, int lotIndex, _LotRow lot) {
+    return Column(
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _lotIndexBadge(lotIndex, compact: true),
+            const SizedBox(width: 8),
+            Expanded(child: _lotNumberField(productIndex, lotIndex, lot)),
+            const SizedBox(width: 4),
+            _lotActions(productIndex, lotIndex, lot, compact: true),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: _qtyField(lot)),
+            const SizedBox(width: 8),
+            Expanded(child: _priceField(lot)),
+            const SizedBox(width: 8),
+            SizedBox(width: 96, height: 42, child: _lotTotal(lot)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _lotIndexBadge(int lotIndex, {bool compact = false}) {
     return Container(
-      width: 44,
-      height: 44,
+      width: compact ? 34 : 40,
+      height: compact ? 40 : 44,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: Colors.blue[50],
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text('${lotIndex + 1}',
-          style:
-              TextStyle(color: Colors.blue[700], fontWeight: FontWeight.w600)),
+          style: TextStyle(
+              color: Colors.blue[700],
+              fontWeight: FontWeight.w700,
+              fontSize: compact ? 12 : 13)),
     );
   }
 
@@ -910,8 +1043,9 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
         labelText: 'Lot',
         hintText: 'Scan or type lot',
         isDense: true,
-        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        contentPadding: EdgeInsets.symmetric(horizontal: 9, vertical: 9),
       ),
+      style: const TextStyle(fontSize: 13),
       textInputAction: TextInputAction.next,
       onChanged: (_) => setState(() {}),
       onFieldSubmitted: (value) {
@@ -929,8 +1063,9 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
       decoration: const InputDecoration(
         labelText: 'Qty *',
         isDense: true,
-        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        contentPadding: EdgeInsets.symmetric(horizontal: 9, vertical: 9),
       ),
+      style: const TextStyle(fontSize: 13),
       keyboardType: TextInputType.number,
       onChanged: (_) => setState(() {}),
       validator: (v) {
@@ -947,8 +1082,9 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
       decoration: const InputDecoration(
         labelText: 'Price *',
         isDense: true,
-        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        contentPadding: EdgeInsets.symmetric(horizontal: 9, vertical: 9),
       ),
+      style: const TextStyle(fontSize: 13),
       keyboardType: TextInputType.number,
       onChanged: (_) => setState(() {}),
       validator: (v) {
@@ -970,7 +1106,9 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
               style: TextStyle(fontSize: 11, color: Colors.grey[600])),
           Text(MoneyFormatter.instance.format(lot.subtotal),
               style: TextStyle(
-                  fontWeight: FontWeight.w700, color: Colors.grey[850])),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey[850])),
         ],
       ),
     );
@@ -978,24 +1116,39 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
 
   Widget _lotActions(int productIndex, int lotIndex, _LotRow lot,
       {bool compact = false}) {
+    final density = compact
+        ? const VisualDensity(horizontal: -4, vertical: -4)
+        : VisualDensity.compact;
+    final constraints = compact
+        ? const BoxConstraints.tightFor(width: 30, height: 36)
+        : const BoxConstraints.tightFor(width: 34, height: 40);
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          icon: const Icon(Icons.print, size: 18),
-          tooltip: 'Print barcode label',
-          onPressed: () => _printLotBarcode(lot),
-          visualDensity: compact
-              ? const VisualDensity(horizontal: -4, vertical: -4)
-              : VisualDensity.compact,
+          icon: const Icon(Icons.copy, size: 17),
+          tooltip: 'Clone row',
+          onPressed: () => _duplicateLot(productIndex, lotIndex),
+          visualDensity: density,
+          constraints: constraints,
+          padding: EdgeInsets.zero,
         ),
         IconButton(
-          icon: const Icon(Icons.delete_outline, size: 18),
+          icon: const Icon(Icons.print, size: 17),
+          tooltip: 'Print barcode label',
+          onPressed: () => _printLotBarcode(lot),
+          visualDensity: density,
+          constraints: constraints,
+          padding: EdgeInsets.zero,
+        ),
+        IconButton(
+          icon: const Icon(Icons.delete_outline, size: 17),
           tooltip: 'Remove lot',
           onPressed: () => _removeLot(productIndex, lotIndex),
-          visualDensity: compact
-              ? const VisualDensity(horizontal: -4, vertical: -4)
-              : VisualDensity.compact,
+          visualDensity: density,
+          constraints: constraints,
+          padding: EdgeInsets.zero,
         ),
       ],
     );
@@ -1005,11 +1158,11 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: SizedBox(
-        height: 156,
+        height: 132,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final windowWidth = math.min(constraints.maxWidth - 28, 420.0);
-            const windowHeight = 64.0;
+            const windowHeight = 54.0;
             final scanWindow = Rect.fromCenter(
               center: Offset(
                 constraints.maxWidth / 2,
@@ -1038,14 +1191,14 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.12),
                         border: Border.all(color: Colors.amberAccent, width: 3),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: Align(
                         alignment: Alignment.bottomCenter,
                         child: Container(
                           height: 2,
                           margin: const EdgeInsets.symmetric(
-                              horizontal: 28, vertical: 10),
+                              horizontal: 28, vertical: 8),
                           color: Colors.amberAccent,
                         ),
                       ),
@@ -1063,7 +1216,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                     ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
+                          horizontal: 10, vertical: 6),
                       child: Row(
                         children: [
                           const Icon(Icons.qr_code_scanner,
@@ -1072,7 +1225,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                           Expanded(
                             child: Text(
                               row.scannedLotCount == 0
-                                  ? 'Place the barcode sticker inside the frame.'
+                                  ? 'Place barcode inside the frame.'
                                   : '${row.scannedLotCount} lot(s) scanned. Keep scanning.',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -1111,90 +1264,84 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     );
   }
 
-  Widget _buildTotalsSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _totalRow('Subtotal', _subtotal, bold: true),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _discountController,
-              decoration: const InputDecoration(
-                  labelText: 'Discount', prefixText: '\$ ', isDense: true),
-              keyboardType: TextInputType.number,
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _shippingController,
-              decoration: const InputDecoration(
-                  labelText: 'Shipping', prefixText: '\$ ', isDense: true),
-              keyboardType: TextInputType.number,
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 8),
-            const Divider(),
-            const SizedBox(height: 4),
-            _totalRow('Total', _total, bold: true, large: true),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildPaymentSection() {
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Payment', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _paymentAmountController,
-                    decoration: const InputDecoration(
-                      labelText: 'Payment Amount',
-                      prefixText: '\$ ',
-                      prefixIcon: Icon(Icons.payments),
-                    ),
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => setState(() {}),
-                    validator: (v) {
-                      final amount = double.tryParse(v ?? '') ?? 0;
-                      if (amount < 0) return 'Invalid amount';
-                      if (amount > _total) return 'Too much';
-                      return null;
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _paymentMethod,
-                    decoration: const InputDecoration(
-                      labelText: 'Method',
-                      prefixIcon: Icon(Icons.account_balance_wallet),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                      DropdownMenuItem(value: 'card', child: Text('Card')),
-                      DropdownMenuItem(
-                          value: 'bank_transfer', child: Text('Bank Transfer')),
-                      DropdownMenuItem(value: 'cheque', child: Text('Cheque')),
-                    ],
-                    onChanged: (v) =>
-                        setState(() => _paymentMethod = v ?? 'cash'),
-                  ),
-                ),
-              ],
+            Text(
+              'Payment',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
+            _totalRow('Subtotal', _subtotal),
+            const SizedBox(height: 4),
+            _totalRow('Total', _total, bold: true, large: true),
+            const SizedBox(height: 10),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final amountField = TextFormField(
+                  controller: _paymentAmountController,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment Amount',
+                    prefixText: '\$ ',
+                    prefixIcon: Icon(Icons.payments, size: 20),
+                    isDense: true,
+                  ),
+                  style: const TextStyle(fontSize: 14),
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}),
+                  validator: (v) {
+                    final amount = double.tryParse(v ?? '') ?? 0;
+                    if (amount < 0) return 'Invalid amount';
+                    if (amount > _total) return 'Too much';
+                    return null;
+                  },
+                );
+                final methodField = DropdownButtonFormField<String>(
+                  initialValue: _paymentMethod,
+                  decoration: const InputDecoration(
+                    labelText: 'Method',
+                    prefixIcon: Icon(Icons.account_balance_wallet, size: 20),
+                    isDense: true,
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                    DropdownMenuItem(value: 'card', child: Text('Card')),
+                    DropdownMenuItem(
+                        value: 'bank_transfer', child: Text('Bank Transfer')),
+                    DropdownMenuItem(value: 'cheque', child: Text('Cheque')),
+                  ],
+                  onChanged: (v) =>
+                      setState(() => _paymentMethod = v ?? 'cash'),
+                );
+
+                if (constraints.maxWidth < 560) {
+                  return Column(
+                    children: [
+                      amountField,
+                      const SizedBox(height: 10),
+                      methodField,
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    Expanded(child: amountField),
+                    const SizedBox(width: 10),
+                    Expanded(child: methodField),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
                 OutlinedButton.icon(
@@ -1206,6 +1353,11 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                           }),
                   icon: const Icon(Icons.done_all),
                   label: const Text('Pay Full'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    visualDensity: VisualDensity.compact,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 TextButton.icon(
@@ -1214,18 +1366,24 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                   }),
                   icon: const Icon(Icons.clear),
                   label: const Text('Clear'),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    visualDensity: VisualDensity.compact,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             TextFormField(
               controller: _paymentNoteController,
               decoration: const InputDecoration(
                 labelText: 'Payment Note',
-                prefixIcon: Icon(Icons.notes),
+                prefixIcon: Icon(Icons.notes, size: 20),
+                isDense: true,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             _totalRow('Paid', _paymentAmount),
             const SizedBox(height: 4),
             _totalRow('Balance Due', _balanceDue, bold: true),

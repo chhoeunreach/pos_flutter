@@ -56,7 +56,7 @@ dependencies:
 
 dependency_overrides:
   flutter_plugin_android_lifecycle: 2.0.35
-  image_picker_android: 0.8.13+19
+  image_picker_android: 0.8.13+17
   image_picker_ios: 0.8.13+6
   connectivity_plus: 7.1.1
 

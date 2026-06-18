@@ -34,13 +34,13 @@ class CartWidget extends StatelessWidget {
         Text('${MoneyFormatter.instance.format(item.priceIncTax > 0 ? item.priceIncTax : item.price)} / ${item.unit}', style: Theme.of(context).textTheme.bodySmall),
       ])),
       Row(mainAxisSize: MainAxisSize.min, children: [
-        IconButton(icon: const Icon(Icons.remove_circle_outline, size: 20), onPressed: () => sl<PosBloc>().add(UpdateCartItemQtyEvent(item.productId, item.quantity - 1))),
+        IconButton(icon: const Icon(Icons.remove_circle_outline, size: 20), onPressed: () => sl<PosBloc>().add(UpdateCartItemQtyEvent(item.productId, item.quantity - 1, variationId: item.variationId))),
         Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), decoration: BoxDecoration(border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(6)),
           child: Text('${item.quantity.toInt()}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-        IconButton(icon: const Icon(Icons.add_circle_outline, size: 20), onPressed: () => sl<PosBloc>().add(UpdateCartItemQtyEvent(item.productId, item.quantity + 1))),
+        IconButton(icon: const Icon(Icons.add_circle_outline, size: 20), onPressed: () => sl<PosBloc>().add(UpdateCartItemQtyEvent(item.productId, item.quantity + 1, variationId: item.variationId))),
         const SizedBox(width: 8),
         Text(MoneyFormatter.instance.format(item.lineTotal), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-        IconButton(icon: Icon(Icons.delete_outline, color: Colors.red[400], size: 20), onPressed: () => sl<PosBloc>().add(RemoveFromCartEvent(item.productId))),
+        IconButton(icon: Icon(Icons.delete_outline, color: Colors.red[400], size: 20), onPressed: () => sl<PosBloc>().add(RemoveFromCartEvent(item.productId, variationId: item.variationId))),
       ]),
     ]));
   }
@@ -49,7 +49,7 @@ class CartWidget extends StatelessWidget {
     return Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.grey[50], border: Border(top: BorderSide(color: Colors.grey[200]!))),
       child: Column(children: [
         _row('Subtotal', MoneyFormatter.instance.format(state.subtotal)),
-        if (state.discount > 0) _row('Discount', '-${MoneyFormatter.instance.format(state.discount)}', valueColor: Colors.red),
+        if (state.discountAmount > 0) _row('Discount', '-${MoneyFormatter.instance.format(state.discountAmount)}', valueColor: Colors.red),
         _row('Tax', MoneyFormatter.instance.format(state.tax)),
         const Divider(),
         _row('Total', MoneyFormatter.instance.format(state.total), bold: true, valueColor: Theme.of(context).primaryColor),

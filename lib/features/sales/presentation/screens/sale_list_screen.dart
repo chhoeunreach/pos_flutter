@@ -21,7 +21,7 @@ class _SaleListScreenState extends State<SaleListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<TransactionBloc>(create: (_) => sl<TransactionBloc>(),
+    return BlocProvider<TransactionBloc>.value(value: sl<TransactionBloc>(),
       child: Scaffold(
         appBar: AppBar(title: const Text('Sales')),
         body: Column(children: [
