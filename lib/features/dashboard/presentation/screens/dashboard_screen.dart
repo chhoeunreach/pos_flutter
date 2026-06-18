@@ -18,6 +18,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime? _startDate;
   DateTime? _endDate;
   String _selectedRange = 'month';
+  int? _selectedLocationId;
   late final DashboardBloc _dashboardBloc;
 
   @override
@@ -26,7 +27,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _dashboardBloc = sl<DashboardBloc>();
     _applyRange('month');
   }
-
 
   void _applyRange(String range) {
     final now = DateTime.now();
@@ -68,6 +68,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _dashboardBloc.add(LoadDashboardEvent(
       startDate: _startDate,
       endDate: _endDate,
+      locationId: _selectedLocationId,
     ));
   }
 
@@ -115,24 +116,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  _buildDateFilter(),
-                  const SizedBox(height: 16),
-                  if (d != null) ...[
-                    _buildSummaryGrid(d),
-                    const SizedBox(height: 24),
-                    _buildLowStockSection(d),
-                    const SizedBox(height: 24),
-                    _buildRecentSales(d['recent_sales'] as List?),
-                    const SizedBox(height: 24),
-                    _buildTopProducts(d['top_products'] as List?),
-                  ],
-                  if (state.isLoading)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 16),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                ]),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildDateFilter(),
+                      const SizedBox(height: 16),
+                      if (d != null) ...[
+                        _buildQuickActions(),
+                        const SizedBox(height: 16),
+                        _buildSummaryGrid(d),
+                        const SizedBox(height: 24),
+                        _buildLowStockSection(d),
+                        const SizedBox(height: 24),
+                        _buildRecentSales(d['recent_sales'] as List?),
+                        const SizedBox(height: 24),
+                        _buildTopProducts(d['top_products'] as List?),
+                      ],
+                      if (state.isLoading)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 16),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                    ]),
               ),
             );
           },
@@ -142,6 +147,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildDateFilter() {
+    final locations = sl<AuthBloc>().state.locations;
     return AppCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -167,9 +173,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   labelText: 'From',
                   prefixIcon: Icon(Icons.calendar_today, size: 18),
                   isDense: true,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 ),
-                child: Text(_startLabel, style: Theme.of(context).textTheme.bodyMedium),
+                child: Text(_startLabel,
+                    style: Theme.of(context).textTheme.bodyMedium),
               ),
             ),
           ),
@@ -185,21 +193,72 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   labelText: 'To',
                   prefixIcon: Icon(Icons.calendar_today, size: 18),
                   isDense: true,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 ),
-                child: Text(_endLabel, style: Theme.of(context).textTheme.bodyMedium),
+                child: Text(_endLabel,
+                    style: Theme.of(context).textTheme.bodyMedium),
               ),
             ),
           ),
         ]),
+        if (locations.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int?>(
+            initialValue: _selectedLocationId,
+            decoration: const InputDecoration(
+              labelText: 'Location',
+              prefixIcon: Icon(Icons.store, size: 18),
+              isDense: true,
+            ),
+            items: [
+              const DropdownMenuItem<int?>(
+                value: null,
+                child: Text('All locations'),
+              ),
+              ...locations.map((location) => DropdownMenuItem<int?>(
+                    value: _asInt(location['id']),
+                    child: Text(location['name']?.toString() ?? ''),
+                  )),
+            ],
+            onChanged: (value) {
+              setState(() => _selectedLocationId = value);
+              _load();
+            },
+          ),
+        ],
       ]),
+    );
+  }
+
+  Widget _buildQuickActions() {
+    return Row(
+      children: [
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: () => context.go('/pos'),
+            icon: const Icon(Icons.point_of_sale),
+            label: const Text('Sell'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => context.go('/transfers'),
+            icon: const Icon(Icons.swap_horiz),
+            label: const Text('Transfer'),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildDateChip(String label, String value) {
     final isActive = _selectedRange == value;
     return FilterChip(
-      label: Text(label, style: TextStyle(fontSize: 12, color: isActive ? Colors.white : null)),
+      label: Text(label,
+          style:
+              TextStyle(fontSize: 12, color: isActive ? Colors.white : null)),
       selected: isActive,
       onSelected: (_) => _applyRange(value),
       selectedColor: Theme.of(context).primaryColor,
@@ -276,7 +335,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Expanded(
           child: Text(
             '$count product${count > 1 ? 's' : ''} ${count > 1 ? 'are' : 'is'} low on stock',
-            style: TextStyle(color: Colors.red.shade800, fontWeight: FontWeight.w500),
+            style: TextStyle(
+                color: Colors.red.shade800, fontWeight: FontWeight.w500),
           ),
         ),
         TextButton(
@@ -302,7 +362,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: ListTile(
               contentPadding: EdgeInsets.zero,
               leading: CircleAvatar(
-                backgroundColor: isPaid ? Colors.green[100] : Colors.orange[100],
+                backgroundColor:
+                    isPaid ? Colors.green[100] : Colors.orange[100],
                 child: Icon(
                   isPaid ? Icons.check_circle : Icons.pending,
                   color: isPaid ? Colors.green : Colors.orange,
@@ -444,4 +505,10 @@ class _StatCard extends StatelessWidget {
       ),
     );
   }
+}
+
+int? _asInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
 }

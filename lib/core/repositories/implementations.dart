@@ -531,6 +531,18 @@ class StockRepositoryImpl implements StockRepository {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> getTransfers({int? locationId}) async {
+    final params = <String, dynamic>{'per_page': 100};
+    if (locationId != null) params['location_id'] = locationId;
+    final res = await _api.getPaginated<Map<String, dynamic>>(
+      '/stock/transfers',
+      queryParams: params,
+      fromJson: (json) => json as Map<String, dynamic>,
+    );
+    return res.data;
+  }
+
+  @override
   Future<Map<String, dynamic>> adjust(Map<String, dynamic> data) async {
     final res = await _api.post<Map<String, dynamic>>(
       '/stock/adjustments',

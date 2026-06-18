@@ -57,6 +57,11 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Suppress experimental coroutine deprecation error in permission_handler_windows
+target_compile_definitions(permission_handler_windows_plugin PRIVATE
+  _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+)
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

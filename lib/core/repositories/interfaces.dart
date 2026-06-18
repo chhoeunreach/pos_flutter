@@ -79,6 +79,7 @@ abstract class TransactionRepository {
 abstract class StockRepository {
   Future<List<Map<String, dynamic>>> getAll({int? locationId});
   Future<List<Map<String, dynamic>>> getLowStock();
+  Future<List<Map<String, dynamic>>> getTransfers({int? locationId});
   Future<Map<String, dynamic>> adjust(Map<String, dynamic> data);
   Future<Map<String, dynamic>> transfer(Map<String, dynamic> data);
 }

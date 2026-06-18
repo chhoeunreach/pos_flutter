@@ -19,7 +19,8 @@ class _AppShellState extends State<AppShell> {
         '/purchases'),
     _NavItem(
         'Sales', Icons.receipt_long_outlined, Icons.receipt_long, '/sales'),
-    _NavItem('Transfer', Icons.swap_horiz_outlined, Icons.swap_horiz, '/stock'),
+    _NavItem(
+        'Transfer', Icons.swap_horiz_outlined, Icons.swap_horiz, '/transfers'),
   ];
 
   final List<_NavItem> _secondaryItems = [
@@ -118,48 +119,75 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _buildDesktopSidebar() {
-    final primaryIndex = _selectedPrimaryIndex(context);
     return Container(
-      width: 92,
+      width: 232,
       color: Theme.of(context).colorScheme.surface,
       child: SafeArea(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Icon(Icons.store,
-                  size: 32, color: Theme.of(context).colorScheme.primary),
-            ),
-            ..._primaryItems.asMap().entries.map((entry) {
-              final index = entry.key;
-              final item = entry.value;
-              final selected = primaryIndex == index;
-              return _SidebarButton(
-                item: item,
-                selected: selected,
-                onTap: () => context.go(item.route),
-              );
-            }),
-            const Divider(height: 24),
-            Expanded(
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: _secondaryItems
-                    .map((item) => _SidebarButton(
-                          item: item,
-                          dense: true,
-                          selected: _isRouteSelected(context, item.route),
-                          onTap: () => context.go(item.route),
-                        ))
-                    .toList(),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: Row(
+                children: [
+                  Icon(Icons.store,
+                      size: 30, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'POS',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
               ),
             ),
-            IconButton(
-              tooltip: 'Logout',
-              onPressed: _confirmLogout,
-              icon: const Icon(Icons.logout, color: Colors.red),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  _SidebarSection(
+                    label: 'Main',
+                    children: _primaryItems
+                        .map((item) => _SidebarButton(
+                              item: item,
+                              selected: _isRouteSelected(context, item.route),
+                              onTap: () => context.go(item.route),
+                            ))
+                        .toList(),
+                  ),
+                  const SizedBox(height: 8),
+                  _SidebarSection(
+                    label: 'Other',
+                    children: _secondaryItems
+                        .map((item) => _SidebarButton(
+                              item: item,
+                              selected: _isRouteSelected(context, item.route),
+                              onTap: () => context.go(item.route),
+                            ))
+                        .toList(),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: OutlinedButton.icon(
+                onPressed: _confirmLogout,
+                icon: const Icon(Icons.logout, color: Colors.red),
+                label: const Text('Logout'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  alignment: Alignment.centerLeft,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -268,17 +296,42 @@ class _NavItem {
   const _NavItem(this.label, this.icon, this.activeIcon, this.route);
 }
 
+class _SidebarSection extends StatelessWidget {
+  final String label;
+  final List<Widget> children;
+
+  const _SidebarSection({required this.label, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+          child: Text(
+            label.toUpperCase(),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        ...children,
+      ],
+    );
+  }
+}
+
 class _SidebarButton extends StatelessWidget {
   final _NavItem item;
   final bool selected;
-  final bool dense;
   final VoidCallback onTap;
 
   const _SidebarButton({
     required this.item,
     required this.selected,
     required this.onTap,
-    this.dense = false,
   });
 
   @override
@@ -286,33 +339,34 @@ class _SidebarButton extends StatelessWidget {
     final color =
         selected ? Theme.of(context).colorScheme.primary : Colors.grey[700];
     return Padding(
-      padding: EdgeInsets.symmetric(
-          horizontal: dense ? 6 : 8, vertical: dense ? 2 : 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: Container(
-          padding: EdgeInsets.symmetric(vertical: dense ? 6 : 8),
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: selected
                 ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
                 : null,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: Row(
             children: [
               Icon(selected ? item.activeIcon : item.icon,
-                  color: color, size: dense ? 22 : 24),
-              const SizedBox(height: 4),
-              Text(
-                item.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: color,
-                  fontSize: dense ? 10 : 11,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                  color: color, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  item.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                  ),
                 ),
               ),
             ],

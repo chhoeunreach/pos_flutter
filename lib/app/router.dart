@@ -25,6 +25,7 @@ import '../features/purchases/presentation/screens/purchase_form_screen.dart';
 import '../features/expenses/presentation/screens/expense_list_screen.dart';
 import '../features/expenses/presentation/screens/expense_form_screen.dart';
 import '../features/stock/presentation/screens/stock_list_screen.dart';
+import '../features/stock/presentation/screens/stock_transfer_screen.dart';
 import '../features/payments/presentation/screens/payment_list_screen.dart';
 import '../features/reports/presentation/screens/cashier_report_screen.dart';
 import '../features/reports/presentation/screens/report_selection_screen.dart';
@@ -143,6 +144,9 @@ GoRouter createAppRouter(AuthBloc authBloc) {
           GoRoute(
               path: '/stock',
               builder: (context, state) => const StockListScreen()),
+          GoRoute(
+              path: '/transfers',
+              builder: (context, state) => const StockTransferScreen()),
           GoRoute(
               path: '/payments',
               builder: (context, state) => const PaymentListScreen()),
