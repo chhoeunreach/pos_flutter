@@ -435,6 +435,11 @@ class TransactionRepositoryImpl implements TransactionRepository {
   }
 
   @override
+  Future<void> deletePurchase(int id) async {
+    await _api.delete('/purchases/$id');
+  }
+
+  @override
   Future<Map<String, dynamic>> addPayment(
       int transactionId, double amount, String method,
       {int? accountId,

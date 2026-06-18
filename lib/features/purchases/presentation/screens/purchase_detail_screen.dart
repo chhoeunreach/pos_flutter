@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/repositories/interfaces.dart';
 import '../../../../core/utils/money_formatter.dart';
+import '../../../../core/utils/product_variation_utils.dart';
 import '../../../../core/widgets/loading_widget.dart';
+import '../../../../core/widgets/sku_chip.dart';
 
 class PurchaseDetailScreen extends StatefulWidget {
   final int id;
@@ -38,6 +43,7 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
 
           final p = state.detail!;
           final items = p['purchase_lines'] as List? ?? [];
+          final printableLots = _printableLotsFromItems(items);
           final payments = p['payment_lines'] as List? ?? [];
           final contact = p['contact'] as Map<String, dynamic>? ?? {};
           final location = p['location'] as Map<String, dynamic>? ?? {};
@@ -83,8 +89,20 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
                               _row('Status', p['status'] ?? '-'),
                             ]))),
                     const SizedBox(height: 16),
-                    Text('Items',
-                        style: Theme.of(context).textTheme.titleLarge),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text('Items',
+                              style: Theme.of(context).textTheme.titleLarge),
+                        ),
+                        if (printableLots.isNotEmpty)
+                          OutlinedButton.icon(
+                            onPressed: () => _printLotLabels(printableLots),
+                            icon: const Icon(Icons.print, size: 18),
+                            label: const Text('Print All Lots'),
+                          ),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     if (items.isEmpty)
                       const Card(
@@ -138,6 +156,15 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
     final lineTotal = qty * unitPrice;
     final lot = item['lot_number']?.toString();
     final sku = variation?['sub_sku']?.toString();
+    final productMap = product == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(product);
+    final variationMap = variation == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(variation);
+    final productName = productDisplayName(productMap, variationMap);
+    final displayName = productName.isEmpty ? '-' : productName;
+    final hasLot = lot != null && lot.trim().isNotEmpty;
 
     return Card(
       child: Padding(
@@ -148,9 +175,17 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
             Row(
               children: [
                 Expanded(
-                  child: Text(product?['name']?.toString() ?? '-',
+                  child: Text(displayName,
                       style: Theme.of(context).textTheme.titleMedium),
                 ),
+                if (hasLot)
+                  IconButton(
+                    tooltip: 'Print lot label',
+                    icon: const Icon(Icons.print, size: 20),
+                    onPressed: () => _printLotLabels([
+                      _PurchaseLotLabel(productName: displayName, lot: lot),
+                    ]),
+                  ),
                 Text(MoneyFormatter.instance.format(lineTotal),
                     style: const TextStyle(fontWeight: FontWeight.bold)),
               ],
@@ -159,8 +194,10 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
             Wrap(
               spacing: 12,
               runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                if (sku != null && sku.isNotEmpty) Text('SKU: $sku'),
+                if (sku != null && sku.isNotEmpty)
+                  SkuChip(sku: sku, dense: true),
                 Text('Lot: ${lot == null || lot.isEmpty ? '-' : lot}'),
                 Text('Qty: ${_formatQty(qty)}'),
                 Text('Price: ${MoneyFormatter.instance.format(unitPrice)}'),
@@ -283,6 +320,103 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  PdfPageFormat get _labelFormat => PdfPageFormat(
+        40 * PdfPageFormat.mm,
+        10 * PdfPageFormat.mm,
+        marginAll: 1 * PdfPageFormat.mm,
+      ).landscape;
+
+  List<_PurchaseLotLabel> _printableLotsFromItems(List items) {
+    final labels = <_PurchaseLotLabel>[];
+    for (final rawItem in items) {
+      final item = rawItem as Map;
+      final lot = item['lot_number']?.toString().trim() ?? '';
+      if (lot.isEmpty) continue;
+      final product = item['product'] as Map?;
+      final variation = item['variations'] as Map?;
+      final productMap = product == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(product);
+      final variationMap = variation == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(variation);
+      final productName = productDisplayName(productMap, variationMap);
+      labels.add(_PurchaseLotLabel(
+        productName: productName.isEmpty ? '-' : productName,
+        lot: lot,
+      ));
+    }
+    return labels;
+  }
+
+  Future<void> _printLotLabels(List<_PurchaseLotLabel> labels) async {
+    final cleanLabels =
+        labels.where((label) => label.lot.trim().isNotEmpty).toList();
+    if (cleanLabels.isEmpty) {
+      _showSnack('No lot barcode to print');
+      return;
+    }
+
+    try {
+      final pdf = await _generateLotLabelPdf(cleanLabels);
+      if (!mounted) return;
+      final suffix = cleanLabels.length == 1
+          ? cleanLabels.first.lot
+          : '${cleanLabels.length}-lots';
+      await Printing.layoutPdf(
+        name: 'purchase-$suffix-40x10',
+        format: _labelFormat,
+        onLayout: (_) => pdf.save(),
+      );
+    } catch (e) {
+      if (mounted) _showSnack('Print failed: $e');
+    }
+  }
+
+  Future<pw.Document> _generateLotLabelPdf(
+      List<_PurchaseLotLabel> labels) async {
+    final pdf = pw.Document();
+    for (final label in labels) {
+      final lot = label.lot.trim();
+      pdf.addPage(
+        pw.Page(
+          pageFormat: _labelFormat,
+          build: (context) => pw.Column(
+            mainAxisAlignment: pw.MainAxisAlignment.center,
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Text(
+                _labelProductName(label.productName),
+                textAlign: pw.TextAlign.center,
+                maxLines: 1,
+                style: pw.TextStyle(
+                  fontSize: 3.8,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 0.6),
+              pw.Expanded(
+                child: pw.BarcodeWidget(
+                  barcode: pw.Barcode.code128(),
+                  data: lot,
+                  drawText: false,
+                ),
+              ),
+              pw.SizedBox(height: 0.5),
+              pw.Text(
+                lot,
+                textAlign: pw.TextAlign.center,
+                maxLines: 1,
+                style: const pw.TextStyle(fontSize: 3.6),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return pdf;
+  }
+
   Widget _row(String label, String value,
           {bool bold = false, Color? valueColor}) =>
       Padding(
@@ -295,6 +429,16 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
                     fontWeight: bold ? FontWeight.bold : FontWeight.normal,
                     color: valueColor))
           ]));
+}
+
+class _PurchaseLotLabel {
+  final String productName;
+  final String lot;
+
+  const _PurchaseLotLabel({
+    required this.productName,
+    required this.lot,
+  });
 }
 
 double _asDouble(dynamic value) {
@@ -314,6 +458,12 @@ String _formatQty(double value) {
   return value == value.roundToDouble()
       ? value.toStringAsFixed(0)
       : value.toStringAsFixed(2);
+}
+
+String _labelProductName(String value) {
+  final clean = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (clean.length <= 38) return clean;
+  return '${clean.substring(0, 36)}..';
 }
 
 MaterialColor _statusColor(String status) {

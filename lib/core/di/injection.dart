@@ -1076,6 +1076,11 @@ class LoadPurchaseDetailEvent {
   LoadPurchaseDetailEvent(this.id);
 }
 
+class DeletePurchaseEvent {
+  final int id;
+  DeletePurchaseEvent(this.id);
+}
+
 class LoadExpensesEvent {}
 
 class LoadExpenseDetailEvent {
@@ -1122,6 +1127,16 @@ class TransactionBloc extends Bloc<Object, TransactionState> {
       try {
         emit(state.copyWith(
             isLoading: false, detail: await _repo.getPurchaseById(e.id)));
+      } catch (e) {
+        emit(state.copyWith(isLoading: false, error: e.toString()));
+      }
+    });
+    on<DeletePurchaseEvent>((e, emit) async {
+      emit(state.copyWith(isLoading: true, error: null, type: 'purchase'));
+      try {
+        await _repo.deletePurchase(e.id);
+        emit(state.copyWith(
+            isLoading: false, purchases: await _repo.getPurchases()));
       } catch (e) {
         emit(state.copyWith(isLoading: false, error: e.toString()));
       }

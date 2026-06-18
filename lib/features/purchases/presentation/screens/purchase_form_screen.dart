@@ -13,6 +13,8 @@ import '../../../../core/di/injection.dart';
 import '../../../../core/repositories/interfaces.dart';
 import '../../../../core/storage/secure_storage.dart';
 import '../../../../core/utils/money_formatter.dart';
+import '../../../../core/utils/product_variation_utils.dart';
+import '../../../../core/widgets/sku_chip.dart';
 import '../../../products/presentation/widgets/product_search_dialog.dart';
 
 int _nextProductRowId = 1;
@@ -487,8 +489,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Print via'),
-            content:
-                Text('Send to printer at $_printerIp:$_printerPort?'),
+            content: Text('Send to printer at $_printerIp:$_printerPort?'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -537,7 +538,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
         40 * PdfPageFormat.mm,
         10 * PdfPageFormat.mm,
         marginAll: 1 * PdfPageFormat.mm,
-      );
+      ).landscape;
 
   Future<pw.Document> _generateBarcodePdf(String lotNumber) async {
     final pdf = pw.Document();
@@ -622,8 +623,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
 
   Future<void> _showPrinterSettings() async {
     final ipCtrl = TextEditingController(text: _printerIp ?? '');
-    final portCtrl =
-        TextEditingController(text: _printerPort.toString());
+    final portCtrl = TextEditingController(text: _printerPort.toString());
     final formKey = GlobalKey<FormState>();
 
     await showDialog(
@@ -704,9 +704,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
               final portText = portCtrl.text.trim();
               setState(() {
                 _printerIp = ip.isNotEmpty ? ip : null;
-                _printerPort = portText.isNotEmpty
-                    ? int.parse(portText)
-                    : 9100;
+                _printerPort = portText.isNotEmpty ? int.parse(portText) : 9100;
               });
               final storage = SecureStorageService();
               storage.savePrinterIp(_printerIp ?? '');
@@ -1095,9 +1093,18 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                               .textTheme
                               .titleMedium
                               ?.copyWith(fontWeight: FontWeight.w700)),
-                      Text('SKU: ${row.sku}  |  ${row.unit}',
-                          style:
-                              TextStyle(color: Colors.grey[600], fontSize: 12)),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          SkuChip(sku: row.sku, dense: true),
+                          Text(row.unit,
+                              style: TextStyle(
+                                  color: Colors.grey[600], fontSize: 12)),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -1686,7 +1693,7 @@ class _ProductRow {
     lots.add(_LotRow.fromProduct(product, variation));
   }
 
-  String get productName => product['name'] as String? ?? '';
+  String get productName => productDisplayName(product, variation);
   String get sku =>
       variation['sub_sku']?.toString() ?? product['sku']?.toString() ?? '';
   String get unit {
@@ -1907,9 +1914,7 @@ class _LotRow {
 }
 
 Map<String, dynamic> _firstVariation(Map<String, dynamic> product) {
-  final variations = product['variations'] as List? ?? [];
-  if (variations.isEmpty) return {};
-  return Map<String, dynamic>.from(variations.first as Map);
+  return firstProductVariation(product);
 }
 
 double _asDouble(dynamic value) {

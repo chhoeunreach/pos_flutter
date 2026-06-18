@@ -48,6 +48,7 @@ class _PurchaseListScreenState extends State<PurchaseListScreen> {
                   final p = state.purchases[i];
                   final contact = p['contact'] as Map<String, dynamic>? ?? {};
                   final isDue = p['payment_status'] == 'due';
+                  final purchaseId = _asInt(p['id']);
                   return Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
@@ -84,12 +85,34 @@ class _PurchaseListScreenState extends State<PurchaseListScreen> {
                                         Theme.of(context).textTheme.bodySmall),
                               ]),
                             ]),
-                        trailing: Text(
-                            MoneyFormatter.instance.format(p['final_total']),
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                                MoneyFormatter.instance
+                                    .format(p['final_total']),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              tooltip: 'Edit purchase',
+                              icon: const Icon(Icons.edit_outlined, size: 20),
+                              onPressed: purchaseId == null
+                                  ? null
+                                  : () => _showEditNotReady(context),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete purchase',
+                              icon: Icon(Icons.delete_outline,
+                                  size: 20, color: Colors.red[600]),
+                              onPressed: purchaseId == null
+                                  ? null
+                                  : () => _confirmDelete(context, purchaseId),
+                            ),
+                          ],
+                        ),
                         onTap: () => context.go('/purchases/${p['id']}'),
                       ));
                 },
@@ -98,4 +121,46 @@ class _PurchaseListScreenState extends State<PurchaseListScreen> {
       ),
     );
   }
+
+  void _showEditNotReady(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Purchase edit action is not connected to the API yet'),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, int purchaseId) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Purchase'),
+        content: const Text('Are you sure you want to delete this purchase?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Delete'),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true || !mounted || !context.mounted) return;
+    _bloc.add(DeletePurchaseEvent(purchaseId));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Deleting purchase...')),
+    );
+  }
+}
+
+int? _asInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
 }

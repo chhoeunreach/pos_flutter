@@ -4,6 +4,7 @@ import '../../../../core/di/injection.dart';
 import '../../../../core/utils/money_formatter.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/empty_widget.dart';
+import '../../../../core/widgets/sku_chip.dart';
 import 'payment_sheet.dart';
 
 class CartWidget extends StatelessWidget {
@@ -45,9 +46,18 @@ class CartWidget extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
-                Text(
-                    '${MoneyFormatter.instance.format(item.priceIncTax > 0 ? item.priceIncTax : item.price)} / ${item.unit}',
-                    style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    SkuChip(sku: item.sku, dense: true),
+                    Text(
+                        '${MoneyFormatter.instance.format(item.priceIncTax > 0 ? item.priceIncTax : item.price)} / ${item.unit}',
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
               ])),
           Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(

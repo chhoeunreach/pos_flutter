@@ -5,8 +5,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/utils/money_formatter.dart';
+import '../../../../core/utils/product_variation_utils.dart';
 import '../../../../core/widgets/loading_widget.dart';
 import '../../../../core/widgets/error_widget.dart';
+import '../../../../core/widgets/sku_chip.dart';
 import '../widgets/cart_widget.dart';
 import '../widgets/payment_sheet.dart';
 
@@ -731,9 +733,11 @@ class _PosScreenState extends State<PosScreen> {
         if (state.error != null) {
           return AppErrorWidget(message: state.error!, onRetry: _loadProducts);
         }
-        final products = _showFeaturedOnly
+        final sourceProducts = _showFeaturedOnly
             ? state.products.where(_isFeaturedProduct).toList()
             : state.products;
+        final products =
+            sourceProducts.expand(productVariationOptions).toList();
         if (products.isEmpty) {
           return const AppEmptyWidget(
               message: 'No products found', icon: Icons.search_off);
@@ -768,6 +772,8 @@ class _PosScreenState extends State<PosScreen> {
       {bool compact = false}) {
     final name = product['name']?.toString() ?? '';
     final variation = _firstVariation(product);
+    final variationName = variationDisplayName(variation);
+    final displayName = productDisplayName(product, variation);
     final productId = _asInt(product['id']) ?? 0;
     final variationId =
         _asInt(variation['id']) ?? _asInt(product['variation_id']) ?? 0;
@@ -809,7 +815,7 @@ class _PosScreenState extends State<PosScreen> {
           sl<PosBloc>().add(AddToCartEvent(CartItem(
             productId: productId,
             variationId: variationId,
-            name: name,
+            name: displayName,
             sku: sku,
             price: basePrice,
             priceIncTax: price,
@@ -847,15 +853,24 @@ class _PosScreenState extends State<PosScreen> {
                       maxLines: compact ? 2 : 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (sku.isNotEmpty)
-                      Text('($sku)',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.grey.shade500,
-                                    fontSize: 11,
-                                  )),
+                    if (variationName.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        variationName,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.deepPurple.shade600,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                    if (sku.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Center(child: SkuChip(sku: sku, dense: true)),
+                    ],
                     if (enableStock)
                       Text('${_formatQty(totalStock)} $unit(s) in stock',
                           style: TextStyle(
@@ -891,11 +906,7 @@ bool _isFeaturedProduct(Map<String, dynamic> product) {
 }
 
 Map<String, dynamic> _firstVariation(Map<String, dynamic> product) {
-  final variations = product['variations'] as List? ?? [];
-  if (variations.isNotEmpty && variations.first is Map) {
-    return Map<String, dynamic>.from(variations.first as Map);
-  }
-  return {};
+  return firstProductVariation(product);
 }
 
 int? _asInt(dynamic value) {

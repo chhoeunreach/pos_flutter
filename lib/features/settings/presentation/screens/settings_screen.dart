@@ -13,6 +13,12 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    sl<SettingsBloc>().add(LoadSettingsEvent());
+  }
+
   Future<void> _changeServer(BuildContext context) async {
     final shouldChange = await showDialog<bool>(
       context: context,
@@ -43,8 +49,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<SettingsBloc>(
-      create: (_) => sl<SettingsBloc>()..add(LoadSettingsEvent()),
+    return BlocProvider<SettingsBloc>.value(
+      value: sl<SettingsBloc>(),
       child: Scaffold(
         appBar: AppBar(title: const Text('Settings')),
         body:

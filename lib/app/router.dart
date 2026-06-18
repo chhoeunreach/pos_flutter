@@ -46,7 +46,7 @@ GoRouter createAppRouter(AuthBloc authBloc) {
       if (!AppConfig.hasServerUrl && !isConnect) return '/connect';
       if (isCheckingAuth) return null;
       if (isAuth && (isLogin || isConnect)) return '/';
-      if (!isAuth && !isLogin && AppConfig.hasServerUrl) return '/login';
+      if (!isAuth && !isLogin && !isConnect && AppConfig.hasServerUrl) return '/login';
       return null;
     },
     routes: [

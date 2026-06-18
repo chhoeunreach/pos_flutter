@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/repositories/interfaces.dart';
 import '../../../../core/utils/money_formatter.dart';
+import '../../../../core/utils/product_variation_utils.dart';
 import '../../../../core/widgets/error_widget.dart';
 import '../../../../core/widgets/loading_widget.dart';
+import '../../../../core/widgets/sku_chip.dart';
 import '../../../products/presentation/widgets/product_search_dialog.dart';
 
 class StockTransferScreen extends StatefulWidget {
@@ -149,7 +151,7 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
             _products.add(_TransferProduct(
               productId: _asInt(product['id']) ?? 0,
               variationId: variationId,
-              name: product['name']?.toString() ?? '',
+              name: productDisplayName(product, variation),
               sku: variation['sub_sku']?.toString() ??
                   product['sku']?.toString() ??
                   '',
@@ -484,7 +486,8 @@ class _TransferTable extends StatelessWidget {
                 (row) => DataRow(
                   cells: [
                     DataCell(_smallText(row.date, width: 120)),
-                    DataCell(_smallText(row.sku, width: 100)),
+                    DataCell(SizedBox(
+                        width: 100, child: SkuChip(sku: row.sku, dense: true))),
                     DataCell(_smallText(row.product, width: 180)),
                     DataCell(Text(_formatQty(row.quantity))),
                     DataCell(_smallText(row.fromLocation, width: 150)),
@@ -558,9 +561,18 @@ class _TransferProductCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleMedium,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      Text(
-                        'SKU: ${product.sku} | ${product.unit} | ${product.lots.length} lot(s)',
-                        style: Theme.of(context).textTheme.bodySmall,
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          SkuChip(sku: product.sku, dense: true),
+                          Text(product.unit,
+                              style: Theme.of(context).textTheme.bodySmall),
+                          Text('${product.lots.length} lot(s)',
+                              style: Theme.of(context).textTheme.bodySmall),
+                        ],
                       ),
                     ],
                   ),
@@ -870,11 +882,7 @@ String _userName(Map? user) {
 }
 
 Map<String, dynamic> _firstVariation(Map<String, dynamic> product) {
-  final variations = product['variations'] as List? ?? [];
-  if (variations.isNotEmpty && variations.first is Map) {
-    return Map<String, dynamic>.from(variations.first as Map);
-  }
-  return {};
+  return firstProductVariation(product);
 }
 
 int? _asInt(dynamic value) {

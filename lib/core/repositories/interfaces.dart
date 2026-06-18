@@ -66,6 +66,7 @@ abstract class TransactionRepository {
   Future<List<Map<String, dynamic>>> getPurchases();
   Future<Map<String, dynamic>> getPurchaseById(int id);
   Future<Map<String, dynamic>> createPurchase(Map<String, dynamic> data);
+  Future<void> deletePurchase(int id);
   Future<Map<String, dynamic>> addPayment(
       int transactionId, double amount, String method,
       {int? accountId, String? paidOn, String? note});

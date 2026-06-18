@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/utils/product_variation_utils.dart';
+import '../../../../core/widgets/sku_chip.dart';
+
 class ProductSearchDialog extends StatefulWidget {
   final List<Map<String, dynamic>> products;
   final Future<List<Map<String, dynamic>>> Function(String query)? onSearch;
@@ -25,7 +28,7 @@ class _ProductSearchDialogState extends State<ProductSearchDialog> {
   @override
   void initState() {
     super.initState();
-    _filtered = widget.products;
+    _filtered = _expandProductOptions(widget.products);
   }
 
   @override
@@ -40,13 +43,14 @@ class _ProductSearchDialogState extends State<ProductSearchDialog> {
 
     if (q.isEmpty) {
       setState(() {
-        _filtered = widget.products;
+        _filtered = _expandProductOptions(widget.products);
         _isSearching = false;
       });
       return;
     }
 
-    final localMatches = widget.products
+    final localProducts = _expandProductOptions(widget.products);
+    final localMatches = localProducts
         .where((product) => _searchText(product).contains(q))
         .toList();
     setState(() {
@@ -60,7 +64,10 @@ class _ProductSearchDialogState extends State<ProductSearchDialog> {
       final remoteProducts = await widget.onSearch!(query.trim());
       if (!mounted || version != _searchVersion) return;
       final combined = <String, Map<String, dynamic>>{};
-      for (final product in [...localMatches, ...remoteProducts]) {
+      for (final product in [
+        ...localMatches,
+        ..._expandProductOptions(remoteProducts)
+      ]) {
         final key = _productKey(product);
         combined[key] = product;
       }
@@ -78,7 +85,13 @@ class _ProductSearchDialogState extends State<ProductSearchDialog> {
 
   String _productKey(Map<String, dynamic> product) {
     final id = product['id']?.toString();
-    if (id != null && id.isNotEmpty) return 'id:$id';
+    final variation = firstProductVariation(product);
+    final variationId = variation['id']?.toString();
+    if (id != null && id.isNotEmpty) {
+      return variationId == null || variationId.isEmpty
+          ? 'id:$id'
+          : 'id:$id:$variationId';
+    }
 
     final sku = product['sku']?.toString();
     if (sku != null && sku.isNotEmpty) return 'sku:$sku';
@@ -127,10 +140,11 @@ class _ProductSearchDialogState extends State<ProductSearchDialog> {
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, i) {
                   final p = _filtered[i];
+                  final variation = firstProductVariation(p);
                   return ListTile(
                     dense: true,
-                    title: Text(p['name']?.toString() ?? ''),
-                    subtitle: Text(_subtitle(p)),
+                    title: Text(productDisplayName(p, variation)),
+                    subtitle: _ProductSearchMeta(product: p),
                     trailing: Text(_formatPrice(p['default_selling_price'])),
                     onTap: () {
                       widget.onSelected(p);
@@ -158,13 +172,37 @@ String _formatPrice(dynamic value) {
   return parsed == null ? '-' : '\$${parsed.toStringAsFixed(2)}';
 }
 
-String _subtitle(Map<String, dynamic> product) {
-  final variation = _firstVariation(product);
-  final sku = variation['sub_sku'] ?? product['sku'] ?? '-';
-  final lotNumbers = _lotNumbers(product);
-  return lotNumbers.isEmpty
-      ? 'SKU: $sku'
-      : 'SKU: $sku | Lots: ${lotNumbers.join(', ')}';
+class _ProductSearchMeta extends StatelessWidget {
+  final Map<String, dynamic> product;
+
+  const _ProductSearchMeta({required this.product});
+
+  @override
+  Widget build(BuildContext context) {
+    final variation = firstProductVariation(product);
+    final sku =
+        variation['sub_sku']?.toString() ?? product['sku']?.toString() ?? '';
+    final lotNumbers = _lotNumbers(product);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          SkuChip(sku: sku, dense: true),
+          if (lotNumbers.isNotEmpty)
+            Text(
+              'Lots: ${lotNumbers.join(', ')}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 String _searchText(dynamic value) {
@@ -191,12 +229,6 @@ String _searchText(dynamic value) {
   return pieces.join(' ').toLowerCase();
 }
 
-Map<String, dynamic> _firstVariation(Map<String, dynamic> product) {
-  final variations = product['variations'] as List? ?? [];
-  if (variations.isEmpty || variations.first is! Map) return {};
-  return Map<String, dynamic>.from(variations.first as Map);
-}
-
 List<String> _lotNumbers(Map<String, dynamic> product) {
   final lots = <String>{};
   void visit(dynamic current) {
@@ -220,4 +252,9 @@ List<String> _lotNumbers(Map<String, dynamic> product) {
 
   visit(product);
   return lots.toList();
+}
+
+List<Map<String, dynamic>> _expandProductOptions(
+    List<Map<String, dynamic>> products) {
+  return products.expand(productVariationOptions).toList();
 }

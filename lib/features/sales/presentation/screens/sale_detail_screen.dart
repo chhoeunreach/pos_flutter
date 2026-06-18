@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/repositories/interfaces.dart';
 import '../../../../core/utils/money_formatter.dart';
+import '../../../../core/utils/product_variation_utils.dart';
 import '../../../../core/widgets/error_widget.dart';
 import '../../../../core/widgets/loading_widget.dart';
+import '../../../../core/widgets/sku_chip.dart';
 
 class SaleDetailScreen extends StatefulWidget {
   final int id;
@@ -294,6 +296,14 @@ class _SaleLineCard extends StatelessWidget {
     final variation = item['variations'] as Map?;
     final qty = _asDouble(item['quantity']);
     final price = _asDouble(item['unit_price_inc_tax'] ?? item['unit_price']);
+    final sku = variation?['sub_sku']?.toString() ?? '';
+    final productMap = product == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(product);
+    final variationMap = variation == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(variation);
+    final productName = productDisplayName(productMap, variationMap);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -303,11 +313,20 @@ class _SaleLineCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(product?['name']?.toString() ?? '-',
+                  Text(productName.isEmpty ? '-' : productName,
                       style: Theme.of(context).textTheme.titleMedium),
-                  Text(
-                    'SKU: ${variation?['sub_sku'] ?? '-'} | Qty: ${_formatQty(qty)} | Price: ${MoneyFormatter.instance.format(price)}',
-                    style: Theme.of(context).textTheme.bodySmall,
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SkuChip(sku: sku, dense: true),
+                      Text('Qty: ${_formatQty(qty)}',
+                          style: Theme.of(context).textTheme.bodySmall),
+                      Text('Price: ${MoneyFormatter.instance.format(price)}',
+                          style: Theme.of(context).textTheme.bodySmall),
+                    ],
                   ),
                 ],
               ),
