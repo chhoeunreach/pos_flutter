@@ -64,6 +64,14 @@ class SecureStorageService {
     return await _storage.read(key: 'base_url');
   }
 
+  Future<void> savePrinterIp(String ip) async {
+    await _storage.write(key: 'printer_ip', value: ip);
+  }
+
+  Future<String?> getPrinterIp() async {
+    return await _storage.read(key: 'printer_ip');
+  }
+
   Future<void> clearAll() async {
     await _storage.deleteAll();
   }

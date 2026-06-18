@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -9,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/repositories/interfaces.dart';
+import '../../../../core/storage/secure_storage.dart';
 import '../../../../core/utils/money_formatter.dart';
 import '../../../products/presentation/widgets/product_search_dialog.dart';
 
@@ -49,10 +52,20 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
 
   final List<_ProductRow> _productRows = [];
 
+  String? _printerIp;
+  int _printerPort = 9100;
+
   @override
   void initState() {
     super.initState();
+    _loadPrinterConfig();
     _loadData();
+  }
+
+  Future<void> _loadPrinterConfig() async {
+    final storage = SecureStorageService();
+    final ip = await storage.getPrinterIp();
+    if (mounted) setState(() => _printerIp = ip);
   }
 
   @override
@@ -202,7 +215,8 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     row.lastScannedLot = code;
     row.lastScannedAt = now;
     _addScannedLot(productIndex, code);
-    _showSnack('Lot scanned: $code');
+    HapticFeedback.lightImpact();
+    SystemSound.play(SystemSoundType.click);
   }
 
   void _removeLot(int productIndex, int lotIndex) {
@@ -458,18 +472,76 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   }
 
   Future<void> _printLotBarcode(_LotRow lot) async {
-    final lotNumber = lot.lotNumberCtrl.text.trim();
-    if (lotNumber.isEmpty) {
-      _showSnack('Enter or scan lot before printing');
-      return;
-    }
+    try {
+      final lotNumber = lot.lotNumberCtrl.text.trim();
+      if (lotNumber.isEmpty) {
+        _showSnack('Enter or scan lot before printing');
+        return;
+      }
 
+      final pdf = await _generateBarcodePdf(lotNumber);
+      if (!mounted) return;
+
+      if (_printerIp != null && _printerIp!.isNotEmpty) {
+        final useIp = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Print via'),
+            content:
+                Text('Send to printer at $_printerIp:$_printerPort?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('System Dialog'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Send to IP'),
+              ),
+            ],
+          ),
+        );
+        if (mounted && useIp == true) {
+          await _printPdfViaIp(await pdf.save());
+          return;
+        }
+      }
+
+      if (!mounted) return;
+      await Printing.layoutPdf(
+        name: 'lot-$lotNumber-40x10',
+        format: _labelFormat,
+        onLayout: (_) => pdf.save(),
+      );
+    } catch (e) {
+      if (mounted) _showSnack('Print failed: $e');
+    }
+  }
+
+  Future<void> _printLotBarcodeViaIp(_LotRow lot) async {
+    try {
+      final lotNumber = lot.lotNumberCtrl.text.trim();
+      if (lotNumber.isEmpty) {
+        _showSnack('Enter or scan lot before printing');
+        return;
+      }
+      final pdf = await _generateBarcodePdf(lotNumber);
+      if (!mounted) return;
+      await _printPdfViaIp(await pdf.save());
+    } catch (e) {
+      if (mounted) _showSnack('Print failed: $e');
+    }
+  }
+
+  PdfPageFormat get _labelFormat => PdfPageFormat(
+        40 * PdfPageFormat.mm,
+        10 * PdfPageFormat.mm,
+        marginAll: 1 * PdfPageFormat.mm,
+      );
+
+  Future<pw.Document> _generateBarcodePdf(String lotNumber) async {
     final pdf = pw.Document();
-    final labelFormat = PdfPageFormat(
-      40 * PdfPageFormat.mm,
-      10 * PdfPageFormat.mm,
-      marginAll: 1 * PdfPageFormat.mm,
-    );
+    final labelFormat = _labelFormat;
 
     pdf.addPage(
       pw.Page(
@@ -506,12 +578,148 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
         ),
       ),
     );
+    return pdf;
+  }
 
-    await Printing.layoutPdf(
-      name: 'lot-$lotNumber-40x10',
-      format: labelFormat,
-      onLayout: (_) => pdf.save(),
+  Future<void> _printPdfViaIp(List<int> pdfBytes) async {
+    if (_printerIp == null || _printerIp!.isEmpty) {
+      _showSnack('No printer IP configured');
+      return;
+    }
+
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        _printerIp!,
+        _printerPort,
+        timeout: const Duration(seconds: 10),
+      );
+      socket.add(pdfBytes);
+      await socket.flush();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Printer error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    } finally {
+      await socket?.close();
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sent to printer'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  Future<void> _showPrinterSettings() async {
+    final ipCtrl = TextEditingController(text: _printerIp ?? '');
+    final portCtrl =
+        TextEditingController(text: _printerPort.toString());
+    final formKey = GlobalKey<FormState>();
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Printer Settings'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: ipCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Printer IP Address',
+                  hintText: '192.168.1.100',
+                  prefixIcon: Icon(Icons.dns_outlined),
+                ),
+                keyboardType: TextInputType.url,
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return null;
+                  final parts = v.trim().split('.');
+                  if (parts.length != 4) return 'Enter a valid IP';
+                  for (final p in parts) {
+                    final n = int.tryParse(p);
+                    if (n == null || n < 0 || n > 255) {
+                      return 'Enter a valid IP';
+                    }
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: portCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Port',
+                  hintText: '9100',
+                  prefixIcon: Icon(Icons.settings_ethernet),
+                ),
+                keyboardType: TextInputType.number,
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return null;
+                  final n = int.tryParse(v.trim());
+                  if (n == null || n < 1 || n > 65535) {
+                    return 'Port must be 1-65535';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final storage = SecureStorageService();
+              await storage.savePrinterIp('');
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (mounted) {
+                setState(() {
+                  _printerIp = null;
+                  _printerPort = 9100;
+                });
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Clear'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (!formKey.currentState!.validate()) return;
+              final ip = ipCtrl.text.trim();
+              final portText = portCtrl.text.trim();
+              setState(() {
+                _printerIp = ip.isNotEmpty ? ip : null;
+                _printerPort = portText.isNotEmpty
+                    ? int.parse(portText)
+                    : 9100;
+              });
+              final storage = SecureStorageService();
+              storage.savePrinterIp(_printerIp ?? '');
+              Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
     );
+
+    ipCtrl.dispose();
+    portCtrl.dispose();
   }
 
   @override
@@ -524,7 +732,24 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('New Purchase')),
+      appBar: AppBar(
+        title: const Text('New Purchase'),
+        actions: [
+          if (_printerIp != null && _printerIp!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Tooltip(
+                message: 'Printer: $_printerIp',
+                child: Icon(Icons.print, size: 18, color: Colors.green[300]),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, size: 20),
+            tooltip: 'Printer settings',
+            onPressed: _showPrinterSettings,
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
         child: Form(
@@ -1142,6 +1367,15 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
           constraints: constraints,
           padding: EdgeInsets.zero,
         ),
+        if (_printerIp != null && _printerIp!.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.wifi_tethering, size: 17),
+            tooltip: 'Print via $_printerIp',
+            onPressed: () => _printLotBarcodeViaIp(lot),
+            visualDensity: density,
+            constraints: constraints,
+            padding: EdgeInsets.zero,
+          ),
         IconButton(
           icon: const Icon(Icons.delete_outline, size: 17),
           tooltip: 'Remove lot',
