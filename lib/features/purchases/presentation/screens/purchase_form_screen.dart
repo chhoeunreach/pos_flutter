@@ -1178,6 +1178,29 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                 MobileScanner(
                   fit: BoxFit.cover,
                   scanWindow: scanWindow,
+                  placeholderBuilder: (context, child) => const ColoredBox(
+                    color: Colors.black,
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                  errorBuilder: (context, error, child) => ColoredBox(
+                    color: Colors.black,
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          error.errorDetails?.message ??
+                              'Camera unavailable. Check camera permission.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                   onDetect: (capture) {
                     for (final barcode in capture.barcodes) {
                       _handleLotScan(productIndex, barcode.rawValue);
@@ -1453,19 +1476,44 @@ class _ProductRow {
     }
   }
 
-  void addLot() => lots.add(_LotRow.fromProduct(product, variation));
+  void addLot() => lots.add(_createNextLot());
 
   void addScannedLot(String lotNumber) {
-    for (final lot in lots) {
+    for (var i = 0; i < lots.length; i += 1) {
+      final lot = lots[i];
       if (lot.lotNumberCtrl.text.trim().isEmpty) {
+        final priceSource = _lastPriceSource(beforeIndex: i);
+        if (priceSource != null) {
+          lot.applyPricingFrom(priceSource);
+        }
         lot.lotNumberCtrl.text = lotNumber;
         return;
       }
     }
 
-    final lot = _LotRow.fromProduct(product, variation);
+    final lot = _createNextLot();
     lot.lotNumberCtrl.text = lotNumber;
     lots.add(lot);
+  }
+
+  _LotRow _createNextLot() {
+    final lot = _LotRow.fromProduct(product, variation);
+    final priceSource = _lastPriceSource();
+    if (priceSource != null) {
+      lot.applyPricingFrom(priceSource);
+    }
+    return lot;
+  }
+
+  _LotRow? _lastPriceSource({int? beforeIndex}) {
+    final end = beforeIndex ?? lots.length;
+    for (var i = end - 1; i >= 0; i -= 1) {
+      final lot = lots[i];
+      if (lot.purchasePriceCtrl.text.trim().isNotEmpty) {
+        return lot;
+      }
+    }
+    return null;
   }
 
   void duplicateLot(int index) {
@@ -1519,6 +1567,14 @@ class _LotRow {
     mfgDate = original.mfgDate;
     expDate = original.expDate;
     _setupListeners();
+  }
+
+  void applyPricingFrom(_LotRow source) {
+    purchasePriceCtrl.text = source.purchasePriceCtrl.text;
+    purchasePriceIncTaxCtrl.text = source.purchasePriceIncTaxCtrl.text;
+    sellPriceCtrl.text = source.sellPriceCtrl.text;
+    profitPercentCtrl.text = source.profitPercentCtrl.text;
+    itemTaxCtrl.text = source.itemTaxCtrl.text;
   }
 
   bool get isEmpty =>
