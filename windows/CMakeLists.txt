@@ -62,10 +62,17 @@ endif()
 
 include(flutter/generated_plugins.cmake)
 
-# Suppress experimental coroutine deprecation error in permission_handler_windows
-target_compile_definitions(permission_handler_windows_plugin PRIVATE
-  _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
-)
+# Suppress experimental coroutine deprecation errors from Windows plugins built
+# against older WinRT coroutine headers with newer Visual Studio toolchains.
+foreach(plugin_target
+    permission_handler_windows_plugin
+    audioplayers_windows_plugin)
+  if(TARGET ${plugin_target})
+    target_compile_definitions(${plugin_target} PRIVATE
+      _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+    )
+  endif()
+endforeach()
 
 
 # === Installation ===

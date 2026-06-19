@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -35,6 +37,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   final _notesController = TextEditingController();
   final _paymentAmountController = TextEditingController(text: '0');
   final _paymentNoteController = TextEditingController();
+  final _lotSuccessPlayer = AudioPlayer();
 
   int? _supplierId;
   int? _locationId;
@@ -80,6 +83,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     _notesController.dispose();
     _paymentAmountController.dispose();
     _paymentNoteController.dispose();
+    _lotSuccessPlayer.dispose();
     for (final row in _productRows) {
       row.dispose();
     }
@@ -339,6 +343,20 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     });
   }
 
+  void _importTypedLot(int productIndex) {
+    if (productIndex < 0 || productIndex >= _productRows.length) return;
+    final row = _productRows[productIndex];
+    final lotNumber = row.typedLotCtrl.text.trim();
+    if (lotNumber.isEmpty) return;
+    row.lastScannedLot = lotNumber;
+    row.lastScannedAt = DateTime.now();
+    _addScannedLot(productIndex, lotNumber);
+    row.typedLotCtrl.clear();
+    row.typedLotFocus.requestFocus();
+    HapticFeedback.selectionClick();
+    _playLotSuccessSound();
+  }
+
   void _toggleLotScanner(int productIndex) {
     setState(() {
       final row = _productRows[productIndex];
@@ -366,7 +384,13 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     row.lastScannedAt = now;
     _addScannedLot(productIndex, code);
     HapticFeedback.lightImpact();
-    SystemSound.play(SystemSoundType.click);
+    _playLotSuccessSound();
+  }
+
+  void _playLotSuccessSound() {
+    unawaited(_lotSuccessPlayer.stop().then((_) {
+      return _lotSuccessPlayer.play(AssetSource('audio/success.mp3'));
+    }));
   }
 
   void _removeLot(int productIndex, int lotIndex) {
@@ -1241,57 +1265,45 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(row.productName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          SkuChip(sku: row.sku, dense: true),
-                          Text(row.unit,
-                              style: TextStyle(
-                                  color: Colors.grey[600], fontSize: 12)),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => _toggleLotScanner(index),
-                  icon: Icon(row.isScanningLot
-                      ? Icons.qr_code_scanner
-                      : Icons.qr_code_scanner_outlined),
-                  tooltip: row.isScanningLot ? 'Hide scanner' : 'Scan lot',
-                  visualDensity: VisualDensity.compact,
-                ),
-                PopupMenuButton<String>(
-                  tooltip: 'Product actions',
-                  onSelected: (v) {
-                    if (v == 'change') _showProductSearch(initialIndex: index);
-                    if (v == 'remove') _removeProduct(index);
-                  },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(
-                        value: 'change', child: Text('Change Product')),
-                    const PopupMenuItem(
-                        value: 'remove', child: Text('Remove Product')),
+            LayoutBuilder(builder: (context, constraints) {
+              final compact = constraints.maxWidth < 760;
+              final productInfo = _buildProductHeaderInfo(row);
+              final controls = _buildLotImportSwitch(index, row);
+              final menu = PopupMenuButton<String>(
+                tooltip: 'Product actions',
+                onSelected: (v) {
+                  if (v == 'change') _showProductSearch(initialIndex: index);
+                  if (v == 'remove') _removeProduct(index);
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                      value: 'change', child: Text('Change Product')),
+                  const PopupMenuItem(
+                      value: 'remove', child: Text('Remove Product')),
+                ],
+              );
+              if (compact) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(children: [Expanded(child: productInfo), menu]),
+                    const SizedBox(height: 8),
+                    controls,
                   ],
-                ),
-              ],
-            ),
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: productInfo),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: row.isScanningLot ? 240 : 340,
+                    child: controls,
+                  ),
+                  menu,
+                ],
+              );
+            }),
             const SizedBox(height: 8),
             if (row.isScanningLot) ...[
               _buildInlineLotScanner(index, row),
@@ -1362,6 +1374,36 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
               : _buildWideLotRow(productIndex, lotIndex, lot),
         );
       },
+    );
+  }
+
+  Widget _buildProductHeaderInfo(_ProductRow row) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          row.productName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SkuChip(sku: row.sku, dense: true),
+            Text(
+              row.unit,
+              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1551,6 +1593,82 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
           visualDensity: density,
           constraints: constraints,
           padding: EdgeInsets.zero,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLotImportSwitch(int productIndex, _ProductRow row) {
+    if (row.isScanningLot) {
+      return Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                border: Border.all(color: Colors.blue.shade100),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              alignment: Alignment.centerLeft,
+              child: Row(
+                children: [
+                  Icon(Icons.qr_code_scanner,
+                      color: Colors.blue.shade700, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Scan lot mode',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.blue.shade800,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            onPressed: () => _toggleLotScanner(productIndex),
+            icon: const Icon(Icons.keyboard, size: 18),
+            label: const Text('Type'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 44),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: row.typedLotCtrl,
+            focusNode: row.typedLotFocus,
+            decoration: const InputDecoration(
+              labelText: 'Type lot',
+              hintText: 'Enter lot',
+              prefixIcon: Icon(Icons.keyboard, size: 18),
+              isDense: true,
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+            ),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _importTypedLot(productIndex),
+          ),
+        ),
+        const SizedBox(width: 6),
+        IconButton.outlined(
+          tooltip: 'Scan lot',
+          onPressed: () => _toggleLotScanner(productIndex),
+          icon: const Icon(Icons.qr_code_scanner_outlined),
         ),
       ],
     );
@@ -1840,6 +1958,8 @@ class _ProductRow {
   Map<String, dynamic> product;
   Map<String, dynamic> variation;
   final int localProductRowId;
+  final typedLotCtrl = TextEditingController();
+  final typedLotFocus = FocusNode();
   final List<_LotRow> lots = [];
   bool isScanningLot = false;
   String? lastScannedLot;
@@ -1924,6 +2044,8 @@ class _ProductRow {
   }
 
   void dispose() {
+    typedLotCtrl.dispose();
+    typedLotFocus.dispose();
     for (final lot in lots) {
       lot.dispose();
     }
