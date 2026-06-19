@@ -38,6 +38,11 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   final _paymentAmountController = TextEditingController(text: '0');
   final _paymentNoteController = TextEditingController();
   final _lotSuccessPlayer = AudioPlayer();
+  final _lotErrorPlayer = AudioPlayer();
+  bool _lotSuccessSoundReady = false;
+  bool _lotErrorSoundReady = false;
+  String? _lastDuplicateLot;
+  DateTime? _lastDuplicateAt;
 
   int? _supplierId;
   int? _locationId;
@@ -67,8 +72,50 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   @override
   void initState() {
     super.initState();
+    _prepareLotSuccessSound();
+    _prepareLotErrorSound();
     _loadPrinterConfig();
     _loadData();
+  }
+
+  void _prepareLotSuccessSound() {
+    unawaited(() async {
+      try {
+        final context = AudioContextConfig(
+          route: AudioContextConfigRoute.speaker,
+          focus: AudioContextConfigFocus.duckOthers,
+          respectSilence: false,
+        ).build();
+        await _lotSuccessPlayer.setAudioContext(context);
+        await _lotSuccessPlayer.setPlayerMode(PlayerMode.lowLatency);
+        await _lotSuccessPlayer.setReleaseMode(ReleaseMode.stop);
+        await _lotSuccessPlayer.setVolume(1);
+        await _lotSuccessPlayer.setSource(AssetSource('audio/success.mp3'));
+        _lotSuccessSoundReady = true;
+      } catch (_) {
+        _lotSuccessSoundReady = false;
+      }
+    }());
+  }
+
+  void _prepareLotErrorSound() {
+    unawaited(() async {
+      try {
+        final context = AudioContextConfig(
+          route: AudioContextConfigRoute.speaker,
+          focus: AudioContextConfigFocus.duckOthers,
+          respectSilence: false,
+        ).build();
+        await _lotErrorPlayer.setAudioContext(context);
+        await _lotErrorPlayer.setPlayerMode(PlayerMode.lowLatency);
+        await _lotErrorPlayer.setReleaseMode(ReleaseMode.stop);
+        await _lotErrorPlayer.setVolume(1);
+        await _lotErrorPlayer.setSource(AssetSource('audio/error.mp3'));
+        _lotErrorSoundReady = true;
+      } catch (_) {
+        _lotErrorSoundReady = false;
+      }
+    }());
   }
 
   Future<void> _loadPrinterConfig() async {
@@ -84,6 +131,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     _paymentAmountController.dispose();
     _paymentNoteController.dispose();
     _lotSuccessPlayer.dispose();
+    _lotErrorPlayer.dispose();
     for (final row in _productRows) {
       row.dispose();
     }
@@ -348,6 +396,12 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     final row = _productRows[productIndex];
     final lotNumber = row.typedLotCtrl.text.trim();
     if (lotNumber.isEmpty) return;
+    if (_lotNumberExists(lotNumber)) {
+      row.typedLotCtrl.clear();
+      row.typedLotFocus.requestFocus();
+      _rejectDuplicateLot(lotNumber);
+      return;
+    }
     row.lastScannedLot = lotNumber;
     row.lastScannedAt = DateTime.now();
     _addScannedLot(productIndex, lotNumber);
@@ -380,6 +434,13 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
         now.difference(row.lastScannedAt!) < const Duration(seconds: 1);
     if (isFastDuplicate) return;
 
+    if (_lotNumberExists(code)) {
+      row.lastScannedLot = code;
+      row.lastScannedAt = now;
+      _rejectDuplicateLot(code);
+      return;
+    }
+
     row.lastScannedLot = code;
     row.lastScannedAt = now;
     _addScannedLot(productIndex, code);
@@ -388,9 +449,89 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   }
 
   void _playLotSuccessSound() {
-    unawaited(_lotSuccessPlayer.stop().then((_) {
-      return _lotSuccessPlayer.play(AssetSource('audio/success.mp3'));
-    }));
+    unawaited(() async {
+      try {
+        await _lotSuccessPlayer.stop();
+        if (_lotSuccessSoundReady) {
+          await _lotSuccessPlayer.resume();
+          return;
+        }
+        await _lotSuccessPlayer.play(
+          AssetSource('audio/success.mp3'),
+          volume: 1,
+          mode: PlayerMode.lowLatency,
+          ctx: AudioContextConfig(
+            route: AudioContextConfigRoute.speaker,
+            focus: AudioContextConfigFocus.duckOthers,
+            respectSilence: false,
+          ).build(),
+        );
+      } catch (_) {
+        SystemSound.play(SystemSoundType.click);
+      }
+    }());
+  }
+
+  void _rejectDuplicateLot(String lotNumber) {
+    final now = DateTime.now();
+    final isFastRepeat = _lastDuplicateLot == lotNumber &&
+        _lastDuplicateAt != null &&
+        now.difference(_lastDuplicateAt!) < const Duration(seconds: 1);
+    if (isFastRepeat) return;
+
+    _lastDuplicateLot = lotNumber;
+    _lastDuplicateAt = now;
+    HapticFeedback.heavyImpact();
+    _playLotErrorSound();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text('Lot "$lotNumber" already added')),
+      );
+  }
+
+  void _playLotErrorSound() {
+    unawaited(() async {
+      try {
+        await _lotErrorPlayer.stop();
+        if (_lotErrorSoundReady) {
+          await _lotErrorPlayer.resume();
+          return;
+        }
+        await _lotErrorPlayer.play(
+          AssetSource('audio/error.mp3'),
+          volume: 1,
+          mode: PlayerMode.lowLatency,
+          ctx: AudioContextConfig(
+            route: AudioContextConfigRoute.speaker,
+            focus: AudioContextConfigFocus.duckOthers,
+            respectSilence: false,
+          ).build(),
+        );
+      } catch (_) {
+        SystemSound.play(SystemSoundType.alert);
+      }
+    }());
+  }
+
+  bool _lotNumberExists(String lotNumber) {
+    final normalized = _normalizeLotNumber(lotNumber);
+    if (normalized.isEmpty) return false;
+    return _productRows.any((row) => row.hasLotNumber(normalized));
+  }
+
+  String? _firstDuplicateLotNumber() {
+    final seen = <String>{};
+    for (final row in _productRows) {
+      for (final lot in row.lots) {
+        final lotNumber = lot.lotNumberCtrl.text.trim();
+        final normalized = _normalizeLotNumber(lotNumber);
+        if (normalized.isEmpty) continue;
+        if (!seen.add(normalized)) return lotNumber;
+      }
+    }
+    return null;
   }
 
   void _removeLot(int productIndex, int lotIndex) {
@@ -426,6 +567,12 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     }
     if (_locationId == null) {
       _showError('Select a location');
+      return;
+    }
+    final duplicateLot = _firstDuplicateLotNumber();
+    if (duplicateLot != null) {
+      _rejectDuplicateLot(duplicateLot);
+      _showError('Lot "$duplicateLot" is duplicated');
       return;
     }
 
@@ -2012,6 +2159,13 @@ class _ProductRow {
     lots.add(lot);
   }
 
+  bool hasLotNumber(String normalizedLotNumber) {
+    return lots.any(
+      (lot) =>
+          _normalizeLotNumber(lot.lotNumberCtrl.text) == normalizedLotNumber,
+    );
+  }
+
   _LotRow _createNextLot() {
     final lot = _LotRow.fromProduct(product, variation);
     final priceSource = _lastPriceSource();
@@ -2034,7 +2188,7 @@ class _ProductRow {
 
   void duplicateLot(int index) {
     final original = lots[index];
-    lots.add(_LotRow.fromExisting(original));
+    lots.add(_LotRow.fromExisting(original, copyLotNumber: false));
   }
 
   void removeLot(int index) {
@@ -2074,8 +2228,10 @@ class _LotRow {
     _setupListeners();
   }
 
-  _LotRow.fromExisting(_LotRow original) {
-    lotNumberCtrl.text = original.lotNumberCtrl.text;
+  _LotRow.fromExisting(_LotRow original, {bool copyLotNumber = true}) {
+    if (copyLotNumber) {
+      lotNumberCtrl.text = original.lotNumberCtrl.text;
+    }
     qtyCtrl.text = original.qtyCtrl.text;
     purchasePriceCtrl.text = original.purchasePriceCtrl.text;
     purchasePriceIncTaxCtrl.text = original.purchasePriceIncTaxCtrl.text;
@@ -2225,6 +2381,8 @@ String _formatNumberInput(double value) {
       ? value.toStringAsFixed(0)
       : value.toStringAsFixed(2);
 }
+
+String _normalizeLotNumber(String value) => value.trim().toLowerCase();
 
 String _formatQty(double value) {
   return value == value.roundToDouble()
