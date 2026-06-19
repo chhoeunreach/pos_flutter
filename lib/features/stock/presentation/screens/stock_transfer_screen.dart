@@ -1,4 +1,10 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../../core/di/injection.dart';
 import '../../../../core/repositories/interfaces.dart';
@@ -328,12 +334,18 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
   final _refNoController = TextEditingController();
   final _notesController = TextEditingController();
   final _shippingController = TextEditingController(text: '0');
+  final _lotSuccessPlayer = AudioPlayer();
+  final _lotErrorPlayer = AudioPlayer();
   final List<_TransferProduct> _products = [];
   DateTime _date = DateTime.now();
   int? _sourceLocationId;
   int? _destinationLocationId;
   String _status = 'completed';
   bool _isSaving = false;
+  bool _lotSuccessSoundReady = false;
+  bool _lotErrorSoundReady = false;
+  String? _lastDuplicateLot;
+  DateTime? _lastDuplicateAt;
   String? _error;
 
   List<Map<String, dynamic>> get _locations => sl<AuthBloc>().state.locations;
@@ -341,6 +353,8 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
   @override
   void initState() {
     super.initState();
+    _prepareLotSuccessSound();
+    _prepareLotErrorSound();
     final locations = _locations;
     if (locations.isNotEmpty) {
       _sourceLocationId = _asInt(locations.first['id']);
@@ -355,10 +369,52 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
     _refNoController.dispose();
     _notesController.dispose();
     _shippingController.dispose();
+    _lotSuccessPlayer.dispose();
+    _lotErrorPlayer.dispose();
     for (final product in _products) {
       product.dispose();
     }
     super.dispose();
+  }
+
+  void _prepareLotSuccessSound() {
+    unawaited(() async {
+      try {
+        final context = AudioContextConfig(
+          route: AudioContextConfigRoute.speaker,
+          focus: AudioContextConfigFocus.duckOthers,
+          respectSilence: false,
+        ).build();
+        await _lotSuccessPlayer.setAudioContext(context);
+        await _lotSuccessPlayer.setPlayerMode(PlayerMode.lowLatency);
+        await _lotSuccessPlayer.setReleaseMode(ReleaseMode.stop);
+        await _lotSuccessPlayer.setVolume(1);
+        await _lotSuccessPlayer.setSource(AssetSource('audio/success.mp3'));
+        _lotSuccessSoundReady = true;
+      } catch (_) {
+        _lotSuccessSoundReady = false;
+      }
+    }());
+  }
+
+  void _prepareLotErrorSound() {
+    unawaited(() async {
+      try {
+        final context = AudioContextConfig(
+          route: AudioContextConfigRoute.speaker,
+          focus: AudioContextConfigFocus.duckOthers,
+          respectSilence: false,
+        ).build();
+        await _lotErrorPlayer.setAudioContext(context);
+        await _lotErrorPlayer.setPlayerMode(PlayerMode.lowLatency);
+        await _lotErrorPlayer.setReleaseMode(ReleaseMode.stop);
+        await _lotErrorPlayer.setVolume(1);
+        await _lotErrorPlayer.setSource(AssetSource('audio/error.mp3'));
+        _lotErrorSoundReady = true;
+      } catch (_) {
+        _lotErrorSoundReady = false;
+      }
+    }());
   }
 
   Future<void> _addProduct() async {
@@ -407,6 +463,161 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
     if (picked != null) setState(() => _date = picked);
   }
 
+  void _addScannedLot(int productIndex, String lotNumber) {
+    final cleanLotNumber = lotNumber.trim();
+    if (cleanLotNumber.isEmpty) return;
+
+    setState(() {
+      final row = _products[productIndex];
+      row.addScannedLot(cleanLotNumber);
+      row.scannedLotCount += 1;
+    });
+  }
+
+  void _importTypedLot(int productIndex) {
+    if (productIndex < 0 || productIndex >= _products.length) return;
+    final row = _products[productIndex];
+    final lotNumber = row.typedLotCtrl.text.trim();
+    if (lotNumber.isEmpty) return;
+    if (_lotNumberExists(lotNumber)) {
+      row.typedLotCtrl.clear();
+      row.typedLotFocus.requestFocus();
+      _rejectDuplicateLot(lotNumber);
+      return;
+    }
+
+    row.lastScannedLot = lotNumber;
+    row.lastScannedAt = DateTime.now();
+    _addScannedLot(productIndex, lotNumber);
+    row.typedLotCtrl.clear();
+    row.typedLotFocus.requestFocus();
+    HapticFeedback.selectionClick();
+    _playLotSuccessSound();
+  }
+
+  void _toggleLotScanner(int productIndex) {
+    setState(() {
+      final row = _products[productIndex];
+      final shouldOpen = !row.isScanningLot;
+      for (final productRow in _products) {
+        productRow.isScanningLot = false;
+      }
+      row.isScanningLot = shouldOpen;
+    });
+  }
+
+  void _handleLotScan(int productIndex, String? rawCode) {
+    final code = rawCode?.trim();
+    if (code == null || code.isEmpty) return;
+    if (productIndex < 0 || productIndex >= _products.length) return;
+
+    final row = _products[productIndex];
+    final now = DateTime.now();
+    final isFastDuplicate = row.lastScannedLot == code &&
+        row.lastScannedAt != null &&
+        now.difference(row.lastScannedAt!) < const Duration(seconds: 1);
+    if (isFastDuplicate) return;
+
+    if (_lotNumberExists(code)) {
+      row.lastScannedLot = code;
+      row.lastScannedAt = now;
+      _rejectDuplicateLot(code);
+      return;
+    }
+
+    row.lastScannedLot = code;
+    row.lastScannedAt = now;
+    _addScannedLot(productIndex, code);
+    HapticFeedback.lightImpact();
+    _playLotSuccessSound();
+  }
+
+  void _playLotSuccessSound() {
+    unawaited(() async {
+      try {
+        await _lotSuccessPlayer.stop();
+        if (_lotSuccessSoundReady) {
+          await _lotSuccessPlayer.resume();
+          return;
+        }
+        await _lotSuccessPlayer.play(
+          AssetSource('audio/success.mp3'),
+          volume: 1,
+          mode: PlayerMode.lowLatency,
+          ctx: AudioContextConfig(
+            route: AudioContextConfigRoute.speaker,
+            focus: AudioContextConfigFocus.duckOthers,
+            respectSilence: false,
+          ).build(),
+        );
+      } catch (_) {
+        SystemSound.play(SystemSoundType.click);
+      }
+    }());
+  }
+
+  void _rejectDuplicateLot(String lotNumber) {
+    final now = DateTime.now();
+    final isFastRepeat = _lastDuplicateLot == lotNumber &&
+        _lastDuplicateAt != null &&
+        now.difference(_lastDuplicateAt!) < const Duration(seconds: 1);
+    if (isFastRepeat) return;
+
+    _lastDuplicateLot = lotNumber;
+    _lastDuplicateAt = now;
+    HapticFeedback.heavyImpact();
+    _playLotErrorSound();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text('Lot "$lotNumber" already added')),
+      );
+  }
+
+  void _playLotErrorSound() {
+    unawaited(() async {
+      try {
+        await _lotErrorPlayer.stop();
+        if (_lotErrorSoundReady) {
+          await _lotErrorPlayer.resume();
+          return;
+        }
+        await _lotErrorPlayer.play(
+          AssetSource('audio/error.mp3'),
+          volume: 1,
+          mode: PlayerMode.lowLatency,
+          ctx: AudioContextConfig(
+            route: AudioContextConfigRoute.speaker,
+            focus: AudioContextConfigFocus.duckOthers,
+            respectSilence: false,
+          ).build(),
+        );
+      } catch (_) {
+        SystemSound.play(SystemSoundType.alert);
+      }
+    }());
+  }
+
+  bool _lotNumberExists(String lotNumber) {
+    final normalized = _normalizeLotNumber(lotNumber);
+    if (normalized.isEmpty) return false;
+    return _products.any((row) => row.hasLotNumber(normalized));
+  }
+
+  String? _firstDuplicateLotNumber() {
+    final seen = <String>{};
+    for (final row in _products) {
+      for (final lot in row.lots) {
+        final lotNumber = lot.lotController.text.trim();
+        final normalized = _normalizeLotNumber(lotNumber);
+        if (normalized.isEmpty) continue;
+        if (!seen.add(normalized)) return lotNumber;
+      }
+    }
+    return null;
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_sourceLocationId == null || _destinationLocationId == null) {
@@ -419,6 +630,12 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
     }
     if (_products.isEmpty) {
       setState(() => _error = 'Please add at least one product');
+      return;
+    }
+    final duplicateLot = _firstDuplicateLotNumber();
+    if (duplicateLot != null) {
+      _rejectDuplicateLot(duplicateLot);
+      setState(() => _error = 'Lot "$duplicateLot" is duplicated');
       return;
     }
 
@@ -654,6 +871,9 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
                           setState(() => entry.value.duplicateLot(lotIndex)),
                       onRemoveLot: (lotIndex) =>
                           setState(() => entry.value.removeLot(lotIndex)),
+                      onImportTypedLot: () => _importTypedLot(entry.key),
+                      onToggleScanner: () => _toggleLotScanner(entry.key),
+                      onLotScan: (code) => _handleLotScan(entry.key, code),
                     ),
                   ),
           ],
@@ -972,6 +1192,9 @@ class _TransferProductCard extends StatelessWidget {
   final VoidCallback onRemove;
   final void Function(int lotIndex) onDuplicateLot;
   final void Function(int lotIndex) onRemoveLot;
+  final VoidCallback onImportTypedLot;
+  final VoidCallback onToggleScanner;
+  final void Function(String? code) onLotScan;
 
   const _TransferProductCard({
     required this.index,
@@ -981,6 +1204,9 @@ class _TransferProductCard extends StatelessWidget {
     required this.onRemove,
     required this.onDuplicateLot,
     required this.onRemoveLot,
+    required this.onImportTypedLot,
+    required this.onToggleScanner,
+    required this.onLotScan,
   });
 
   @override
@@ -1035,6 +1261,16 @@ class _TransferProductCard extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            _LotImportSwitch(
+              product: product,
+              onImportTypedLot: onImportTypedLot,
+              onToggleScanner: onToggleScanner,
+            ),
+            if (product.isScanningLot) ...[
+              const SizedBox(height: 8),
+              _InlineLotScanner(product: product, onLotScan: onLotScan),
+            ],
             const SizedBox(height: 12),
             ...product.lots.asMap().entries.map(
                   (entry) => _LotRowWidget(
@@ -1158,13 +1394,234 @@ class _LotRowWidget extends StatelessWidget {
   }
 }
 
+class _LotImportSwitch extends StatelessWidget {
+  final _TransferProduct product;
+  final VoidCallback onImportTypedLot;
+  final VoidCallback onToggleScanner;
+
+  const _LotImportSwitch({
+    required this.product,
+    required this.onImportTypedLot,
+    required this.onToggleScanner,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (product.isScanningLot) {
+      return Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                border: Border.all(color: Colors.blue.shade100),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              alignment: Alignment.centerLeft,
+              child: Row(
+                children: [
+                  Icon(Icons.qr_code_scanner,
+                      color: Colors.blue.shade700, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Scan lot mode',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.blue.shade800,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            onPressed: onToggleScanner,
+            icon: const Icon(Icons.keyboard, size: 18),
+            label: const Text('Type'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 44),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: product.typedLotCtrl,
+            focusNode: product.typedLotFocus,
+            decoration: const InputDecoration(
+              labelText: 'Type lot',
+              hintText: 'Enter lot',
+              prefixIcon: Icon(Icons.keyboard, size: 18),
+              isDense: true,
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+            ),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => onImportTypedLot(),
+          ),
+        ),
+        const SizedBox(width: 6),
+        IconButton.outlined(
+          tooltip: 'Scan lot',
+          onPressed: onToggleScanner,
+          icon: const Icon(Icons.qr_code_scanner_outlined),
+        ),
+      ],
+    );
+  }
+}
+
+class _InlineLotScanner extends StatelessWidget {
+  final _TransferProduct product;
+  final void Function(String? code) onLotScan;
+
+  const _InlineLotScanner({
+    required this.product,
+    required this.onLotScan,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        height: 132,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final windowWidth = math.min(constraints.maxWidth - 28, 420.0);
+            const windowHeight = 54.0;
+            final scanWindow = Rect.fromCenter(
+              center: Offset(
+                constraints.maxWidth / 2,
+                constraints.maxHeight / 2,
+              ),
+              width: windowWidth,
+              height: windowHeight,
+            );
+
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                MobileScanner(
+                  fit: BoxFit.cover,
+                  scanWindow: scanWindow,
+                  placeholderBuilder: (context, child) => const ColoredBox(
+                    color: Colors.black,
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                  errorBuilder: (context, error, child) => ColoredBox(
+                    color: Colors.black,
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          error.errorDetails?.message ??
+                              'Camera unavailable. Check camera permission.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  onDetect: (capture) {
+                    for (final barcode in capture.barcodes) {
+                      onLotScan(barcode.rawValue);
+                    }
+                  },
+                ),
+                Positioned.fromRect(
+                  rect: scanWindow,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.12),
+                        border: Border.all(color: Colors.amberAccent, width: 3),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          height: 2,
+                          margin: const EdgeInsets.symmetric(
+                              horizontal: 28, vertical: 8),
+                          color: Colors.amberAccent,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 8,
+                  right: 8,
+                  bottom: 8,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.62),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.qr_code_scanner,
+                              color: Colors.white, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              product.scannedLotCount == 0
+                                  ? 'Place barcode inside the frame.'
+                                  : '${product.scannedLotCount} lot(s) scanned. Keep scanning.',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
 class _TransferProduct {
   final int productId;
   final int variationId;
   final String name;
   final String sku;
   final String unit;
+  final typedLotCtrl = TextEditingController();
+  final typedLotFocus = FocusNode();
   final List<_TransferLot> lots;
+  bool isScanningLot = false;
+  String? lastScannedLot;
+  DateTime? lastScannedAt;
+  int scannedLotCount = 0;
 
   _TransferProduct({
     required this.productId,
@@ -1192,8 +1649,35 @@ class _TransferProduct {
     lots.add(_TransferLot(unitCost: cost));
   }
 
+  void addScannedLot(String lotNumber) {
+    for (var i = 0; i < lots.length; i += 1) {
+      final lot = lots[i];
+      if (lot.lotController.text.trim().isEmpty) {
+        lot.lotController.text = lotNumber;
+        return;
+      }
+    }
+
+    final lot = _createNextLot();
+    lot.lotController.text = lotNumber;
+    lots.add(lot);
+  }
+
+  _TransferLot _createNextLot() {
+    final cost =
+        lots.isEmpty ? 0.0 : (_asDouble(lots.last.costController.text) ?? 0.0);
+    return _TransferLot(unitCost: cost);
+  }
+
+  bool hasLotNumber(String normalizedLotNumber) {
+    return lots.any(
+      (lot) =>
+          _normalizeLotNumber(lot.lotController.text) == normalizedLotNumber,
+    );
+  }
+
   void duplicateLot(int index) {
-    lots.add(_TransferLot.fromExisting(lots[index]));
+    lots.add(_TransferLot.fromExisting(lots[index], copyLotNumber: false));
   }
 
   void removeLot(int index) {
@@ -1203,6 +1687,8 @@ class _TransferProduct {
   }
 
   void dispose() {
+    typedLotCtrl.dispose();
+    typedLotFocus.dispose();
     for (final lot in lots) {
       lot.dispose();
     }
@@ -1218,8 +1704,10 @@ class _TransferLot {
     costController.text = unitCost.toStringAsFixed(2);
   }
 
-  _TransferLot.fromExisting(_TransferLot other) {
-    lotController.text = other.lotController.text;
+  _TransferLot.fromExisting(_TransferLot other, {bool copyLotNumber = true}) {
+    if (copyLotNumber) {
+      lotController.text = other.lotController.text;
+    }
     qtyController.text = other.qtyController.text;
     costController.text = other.costController.text;
   }
@@ -1357,6 +1845,8 @@ double? _asDouble(dynamic value) {
   if (value is num) return value.toDouble();
   return double.tryParse(value?.toString().replaceAll(',', '') ?? '');
 }
+
+String _normalizeLotNumber(String value) => value.trim().toLowerCase();
 
 String _formatQty(double value) {
   return value == value.roundToDouble()
