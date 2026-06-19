@@ -761,7 +761,7 @@ class _PosScreenState extends State<PosScreen> {
                             Navigator.pop(dialogContext);
                           }
                         } catch (e) {
-                          if (mounted) {
+                          if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(e.toString())),
                             );
