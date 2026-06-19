@@ -548,6 +548,8 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
 
   double get _subtotal => _productRows.fold(0, (s, r) => s + r.lotsTotal);
 
+  double get _totalQty => _productRows.fold(0, (s, r) => s + r.totalQuantity);
+
   double get _total => _subtotal;
 
   double get _paymentAmount =>
@@ -1416,6 +1418,19 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
               final compact = constraints.maxWidth < 760;
               final productInfo = _buildProductHeaderInfo(row);
               final controls = _buildLotImportSwitch(index, row);
+              final expandBtn = InkWell(
+                onTap: () => setState(() => row.lotsExpanded = !row.lotsExpanded),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    row.lotsExpanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    size: 20,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              );
               final menu = PopupMenuButton<String>(
                 tooltip: 'Product actions',
                 onSelected: (v) {
@@ -1433,7 +1448,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(children: [Expanded(child: productInfo), menu]),
+                    Row(children: [expandBtn, Expanded(child: productInfo), menu]),
                     const SizedBox(height: 8),
                     controls,
                   ],
@@ -1441,6 +1456,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
               }
               return Row(
                 children: [
+                  expandBtn,
                   Expanded(child: productInfo),
                   const SizedBox(width: 12),
                   SizedBox(
@@ -1452,51 +1468,65 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
               );
             }),
             const SizedBox(height: 8),
-            if (row.isScanningLot) ...[
-              _buildInlineLotScanner(index, row),
-              const SizedBox(height: 8),
-            ],
-            if (row.lots.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text('No lots added',
-                    style: TextStyle(
-                        color: Colors.grey[500], fontStyle: FontStyle.italic)),
-              ),
-            ...row.lots.asMap().entries.map((lotEntry) =>
-                _buildLotCard(index, lotEntry.key, lotEntry.value)),
-            Row(
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => _addLot(index),
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Row'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 36),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Qty ${_formatQty(row.totalQuantity)} ${row.unit}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(color: Colors.grey[700], fontSize: 12),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  MoneyFormatter.instance.format(row.lotsTotal),
-                  style: TextStyle(
-                    color: Colors.grey[850],
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: row.lotsExpanded
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (row.isScanningLot) ...[
+                          _buildInlineLotScanner(index, row),
+                          const SizedBox(height: 8),
+                        ],
+                        if (row.lots.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text('No lots added',
+                                style: TextStyle(
+                                    color: Colors.grey[500],
+                                    fontStyle: FontStyle.italic)),
+                          ),
+                        ...row.lots.asMap().entries.map((lotEntry) =>
+                            _buildLotCard(
+                                index, lotEntry.key, lotEntry.value)),
+                        Row(
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () => _addLot(index),
+                              icon: const Icon(Icons.add, size: 16),
+                              label: const Text('Row'),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(0, 36),
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Qty ${_formatQty(row.totalQuantity)} ${row.unit}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
+                                style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              MoneyFormatter.instance.format(row.lotsTotal),
+                              style: TextStyle(
+                                color: Colors.grey[850],
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         ),
@@ -1547,6 +1577,18 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
             Text(
               row.unit,
               style: TextStyle(color: Colors.grey[600], fontSize: 12),
+            ),
+            Text(
+              'Qty: ${_formatQty(row.totalQuantity)}',
+              style: TextStyle(color: Colors.grey[700], fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            Text(
+              MoneyFormatter.instance.format(row.lotsTotal),
+              style: TextStyle(
+                color: Colors.grey[850],
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ),
@@ -1970,9 +2012,9 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                   ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
-            _totalRow('Subtotal', _subtotal),
+            _totalRow('Subtotal', _subtotal, qty: _totalQty),
             const SizedBox(height: 4),
-            _totalRow('Total', _total, bold: true, large: true),
+            _totalRow('Total', _total, bold: true, large: true, qty: _totalQty),
             const SizedBox(height: 10),
             LayoutBuilder(
               builder: (context, constraints) {
@@ -2084,14 +2126,34 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   }
 
   Widget _totalRow(String label, double amount,
-      {bool bold = false, bool large = false}) {
+      {bool bold = false, bool large = false, double? qty, String? qtyLabel}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label,
-            style: TextStyle(
-                fontWeight: bold ? FontWeight.w600 : FontWeight.normal,
-                fontSize: large ? 18 : 14)),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    fontWeight: bold ? FontWeight.w600 : FontWeight.normal,
+                    fontSize: large ? 18 : 14)),
+            if (qty != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '${qtyLabel ?? 'Qty'}: ${_formatQty(qty)}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                  ),
+                ),
+              ),
+          ],
+        ),
         Text(MoneyFormatter.instance.format(amount),
             style: TextStyle(
                 fontWeight: bold ? FontWeight.bold : FontWeight.normal,
@@ -2109,6 +2171,7 @@ class _ProductRow {
   final typedLotFocus = FocusNode();
   final List<_LotRow> lots = [];
   bool isScanningLot = false;
+  bool lotsExpanded = true;
   String? lastScannedLot;
   DateTime? lastScannedAt;
   int scannedLotCount = 0;
