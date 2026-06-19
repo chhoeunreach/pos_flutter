@@ -66,6 +66,7 @@ abstract class TransactionRepository {
   Future<List<Map<String, dynamic>>> getPurchases();
   Future<Map<String, dynamic>> getPurchaseById(int id);
   Future<Map<String, dynamic>> createPurchase(Map<String, dynamic> data);
+  Future<Map<String, dynamic>> updatePurchase(int id, Map<String, dynamic> data);
   Future<void> deletePurchase(int id);
   Future<Map<String, dynamic>> addPayment(
       int transactionId, double amount, String method,
@@ -80,7 +81,14 @@ abstract class TransactionRepository {
 abstract class StockRepository {
   Future<List<Map<String, dynamic>>> getAll({int? locationId});
   Future<List<Map<String, dynamic>>> getLowStock();
-  Future<List<Map<String, dynamic>>> getTransfers({int? locationId});
+  Future<List<Map<String, dynamic>>> getTransfers({
+    int? locationId,
+    int? locationToId,
+    int? productId,
+    String? status,
+    DateTime? startDate,
+    DateTime? endDate,
+  });
   Future<Map<String, dynamic>> adjust(Map<String, dynamic> data);
   Future<Map<String, dynamic>> transfer(Map<String, dynamic> data);
 }

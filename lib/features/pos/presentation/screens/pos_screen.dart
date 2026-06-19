@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/repositories/interfaces.dart';
 import '../../../../core/utils/money_formatter.dart';
 import '../../../../core/utils/product_variation_utils.dart';
 import '../../../../core/widgets/loading_widget.dart';
@@ -27,6 +28,10 @@ class _PosScreenState extends State<PosScreen> {
   int? _selectedCategoryId;
   int? _selectedBrandId;
   bool _showFeaturedOnly = false;
+  double _discountAmount = 0;
+  String _discountType = 'fixed';
+  int? _taxRateId;
+  String? _pendingSaleMessage;
 
   @override
   void initState() {
@@ -37,7 +42,7 @@ class _PosScreenState extends State<PosScreen> {
     _loadProducts();
   }
 
-  void _loadProducts() => sl<ProductBloc>().add(LoadProductsEvent(
+  void _loadProducts() => sl<ProductBloc>().add(LoadPosProductsEvent(
         categoryId: _selectedCategoryId,
         brandId: _selectedBrandId,
         search: _searchController.text.trim().isEmpty
@@ -59,14 +64,41 @@ class _PosScreenState extends State<PosScreen> {
     final wide = MediaQuery.of(context).size.width >= 900;
     if (wide) {
       return BlocProvider.value(
-          value: sl<PosBloc>(), child: _buildDesktopLayout());
+          value: sl<PosBloc>(), child: _withPosListener(_buildDesktopLayout()));
     }
     if (_showCart) {
       return BlocProvider.value(
-          value: sl<PosBloc>(), child: _buildCartScreen());
+          value: sl<PosBloc>(), child: _withPosListener(_buildCartScreen()));
     }
     return BlocProvider.value(
-        value: sl<PosBloc>(), child: _buildPhoneProductScreen());
+        value: sl<PosBloc>(), child: _withPosListener(_buildPhoneProductScreen()));
+  }
+
+  Widget _withPosListener(Widget child) {
+    return BlocListener<PosBloc, PosState>(
+      listenWhen: (previous, current) =>
+          previous.error != current.error ||
+          previous.saleResult != current.saleResult,
+      listener: (context, state) {
+        if (state.error != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(state.error!), backgroundColor: Colors.red),
+          );
+          return;
+        }
+        if (state.saleResult != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_pendingSaleMessage ?? 'Sale saved'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          _pendingSaleMessage = null;
+          sl<PosBloc>().add(ClearCartEvent());
+        }
+      },
+      child: child,
+    );
   }
 
   Widget _buildPhoneProductScreen() {
@@ -164,6 +196,7 @@ class _PosScreenState extends State<PosScreen> {
                 if (value == null) return;
                 sl<AuthBloc>().add(SelectLocationEvent(value));
                 _loadProducts();
+                sl<PosBloc>().add(ValidateCartEvent(locationId: value));
               },
             ),
           ),
@@ -254,25 +287,36 @@ class _PosScreenState extends State<PosScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: DropdownButtonFormField<String>(
-                        initialValue: 'walk_in',
-                        isDense: true,
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.person, size: 18),
-                          border: OutlineInputBorder(),
-                          contentPadding:
-                              EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                              value: 'walk_in',
-                              child: Text('Walk-In Customer')),
-                        ],
-                        onChanged: (_) {},
+                      child: BlocBuilder<PosBloc, PosState>(
+                        builder: (context, state) {
+                          final customerName =
+                              state.customer?['name']?.toString() ??
+                                  state.customer?['contact_id']?.toString() ??
+                                  'Walk-In Customer';
+                          return OutlinedButton.icon(
+                            onPressed: _showCustomerPicker,
+                            icon: const Icon(Icons.person, size: 18),
+                            label: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                customerName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 42),
+                              alignment: Alignment.centerLeft,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(4)),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(width: 6),
-                    _smallSquareButton(Icons.add_circle, Colors.blue),
+                    _smallSquareButton(Icons.add_circle, Colors.blue,
+                        onTap: _showAddCustomerDialog),
                     const SizedBox(width: 6),
                     _smallSquareButton(Icons.payments, Colors.blue),
                     const SizedBox(width: 32),
@@ -345,13 +389,35 @@ class _PosScreenState extends State<PosScreen> {
               ),
               const SizedBox(width: 20),
               _bottomTextAction('Draft', Icons.edit_square, Colors.blue,
-                  onTap: () => _notReady('Draft sale')),
+                  onTap: hasCart
+                      ? () => _submitSaleMode(
+                            status: 'draft',
+                            successLabel: 'Draft saved',
+                          )
+                      : null),
               _bottomTextAction('Quotation', Icons.edit_note, Colors.amber,
-                  onTap: () => _notReady('Quotation')),
+                  onTap: hasCart
+                      ? () => _submitSaleMode(
+                            status: 'quotation',
+                            successLabel: 'Quotation saved',
+                          )
+                      : null),
               _bottomTextAction('Suspend', Icons.pause, Colors.red,
-                  onTap: () => _notReady('Suspend sale')),
+                  onTap: hasCart
+                      ? () => _submitSaleMode(
+                            status: 'final',
+                            isSuspend: true,
+                            successLabel: 'Sale suspended',
+                          )
+                      : null),
               _bottomTextAction('Credit Sale', Icons.check, Colors.indigo,
-                  onTap: () => _notReady('Credit sale')),
+                  onTap: hasCart
+                      ? () => _submitSaleMode(
+                            status: 'final',
+                            isCreditSale: true,
+                            successLabel: 'Credit sale created',
+                          )
+                      : null),
               _bottomTextAction('Card', Icons.credit_card, Colors.pink,
                   onTap: hasCart ? () => _showPayment(method: 'card') : null),
               const SizedBox(width: 14),
@@ -500,23 +566,41 @@ class _PosScreenState extends State<PosScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => BlocProvider.value(
         value: sl<PosBloc>(),
-        child: PaymentSheet(total: state.total, initialMethod: method),
+        child: PaymentSheet(
+          total: state.total,
+          initialMethod: method,
+          locationId: sl<AuthBloc>().state.selectedLocationId,
+        ),
       ),
     );
   }
 
-  void _notReady(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$feature is not connected to the API yet')),
-    );
+  void _submitSaleMode({
+    required String status,
+    required String successLabel,
+    bool isSuspend = false,
+    bool isCreditSale = false,
+  }) {
+    final locationId = sl<AuthBloc>().state.selectedLocationId;
+    _pendingSaleMessage = successLabel;
+    sl<PosBloc>().add(SubmitSaleEvent(
+      paidAmount: 0,
+      paymentMethod: 'cash',
+      payments: const [],
+      paymentStatus: isCreditSale ? 'due' : null,
+      locationId: locationId,
+      status: status,
+      isSuspend: isSuspend,
+      isCreditSale: isCreditSale,
+    ));
   }
 
-  Widget _smallSquareButton(IconData icon, Color color) {
+  Widget _smallSquareButton(IconData icon, Color color, {VoidCallback? onTap}) {
     return SizedBox(
       width: 42,
       height: 38,
       child: OutlinedButton(
-        onPressed: () {},
+        onPressed: onTap,
         style: OutlinedButton.styleFrom(
           padding: EdgeInsets.zero,
           side: BorderSide(color: Colors.grey.shade300),
@@ -525,6 +609,178 @@ class _PosScreenState extends State<PosScreen> {
         child: Icon(icon, size: 20, color: color),
       ),
     );
+  }
+
+  Future<void> _showCustomerPicker() async {
+    final searchCtrl = TextEditingController();
+    var customers = await sl<ContactRepository>().getCustomers();
+    if (!mounted) {
+      searchCtrl.dispose();
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(builder: (context, setDialogState) {
+          Future<void> search(String value) async {
+            final next = await sl<ContactRepository>().getCustomers(
+              search: value.trim().isEmpty ? null : value.trim(),
+            );
+            if (dialogContext.mounted) {
+              setDialogState(() => customers = next);
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Select Customer'),
+            content: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: searchCtrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search),
+                      hintText: 'Search customer',
+                    ),
+                    onSubmitted: search,
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: customers.length,
+                      itemBuilder: (context, index) {
+                        final customer = customers[index];
+                        return ListTile(
+                          leading: const Icon(Icons.person_outline),
+                          title: Text(customer['name']?.toString() ?? '-'),
+                          subtitle: Text(
+                            customer['mobile']?.toString() ??
+                                customer['contact_id']?.toString() ??
+                                '',
+                          ),
+                          onTap: () {
+                            sl<PosBloc>().add(SetCustomerEvent(customer));
+                            Navigator.pop(dialogContext);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => search(searchCtrl.text),
+                child: const Text('Search'),
+              ),
+            ],
+          );
+        });
+      },
+    );
+
+    searchCtrl.dispose();
+  }
+
+  Future<void> _showAddCustomerDialog() async {
+    final nameCtrl = TextEditingController();
+    final mobileCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    var isSaving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Add Customer'),
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameCtrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Customer Name',
+                      prefixIcon: Icon(Icons.person),
+                    ),
+                    validator: (value) =>
+                        value == null || value.trim().isEmpty
+                            ? 'Required'
+                            : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: mobileCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Mobile',
+                      prefixIcon: Icon(Icons.phone),
+                    ),
+                    keyboardType: TextInputType.phone,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed:
+                    isSaving ? null : () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        setDialogState(() => isSaving = true);
+                        try {
+                          final res = await sl<ContactRepository>().create({
+                            'name': nameCtrl.text.trim(),
+                            'mobile': mobileCtrl.text.trim(),
+                          });
+                          if (res['success'] != true) {
+                            throw Exception(res['message'] ??
+                                'Failed to create customer');
+                          }
+                          final data = Map<String, dynamic>.from(
+                              res['data'] as Map? ?? {});
+                          sl<PosBloc>().add(SetCustomerEvent(data));
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(e.toString())),
+                            );
+                          }
+                          if (dialogContext.mounted) {
+                            setDialogState(() => isSaving = false);
+                          }
+                        }
+                      },
+                child: Text(isSaving ? 'Saving...' : 'Save'),
+              ),
+            ],
+          );
+        });
+      },
+    );
+
+    nameCtrl.dispose();
+    mobileCtrl.dispose();
   }
 
   Widget _buildProductPanel() {
@@ -551,7 +807,7 @@ class _PosScreenState extends State<PosScreen> {
             child: Row(
               children: [
                 _filterPill(Icons.grid_view, 'Category',
-                    count: state.categories.length,
+                    count: _flattenCategoryItems(state.categories).length,
                     active: _selectedCategoryId != null,
                     onTap: () => _showCategoryPicker(state.categories)),
                 const SizedBox(width: 8),
@@ -566,6 +822,20 @@ class _PosScreenState extends State<PosScreen> {
                   active: _showFeaturedOnly,
                   onTap: () =>
                       setState(() => _showFeaturedOnly = !_showFeaturedOnly),
+                ),
+                const SizedBox(width: 8),
+                _filterPill(
+                  Icons.sell_outlined,
+                  'Discount',
+                  active: _discountAmount > 0,
+                  onTap: _showDiscountDialog,
+                ),
+                const SizedBox(width: 8),
+                _filterPill(
+                  Icons.receipt_long,
+                  'Tax',
+                  active: _taxRateId != null,
+                  onTap: _showTaxDialog,
                 ),
               ],
             ),
@@ -630,7 +900,7 @@ class _PosScreenState extends State<PosScreen> {
       List<Map<String, dynamic>> categories) async {
     final selected = await _showFilterPicker(
       title: 'Category',
-      items: categories,
+      items: _flattenCategoryItems(categories),
       selectedId: _selectedCategoryId,
     );
     if (selected == _selectedCategoryId) return;
@@ -673,7 +943,9 @@ class _PosScreenState extends State<PosScreen> {
               ...items.map((item) {
                 final id = _asInt(item['id']);
                 return ListTile(
-                  title: Text(item['name']?.toString() ?? ''),
+                  title: Text(item['display_name']?.toString() ??
+                      item['name']?.toString() ??
+                      ''),
                   subtitle: item['short_code'] == null
                       ? null
                       : Text(item['short_code'].toString()),
@@ -694,6 +966,109 @@ class _PosScreenState extends State<PosScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _showDiscountDialog() async {
+    final amountCtrl =
+        TextEditingController(text: _discountAmount.toStringAsFixed(2));
+    var type = _discountType;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discount'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: amountCtrl,
+              decoration: const InputDecoration(labelText: 'Amount'),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: type,
+              decoration: const InputDecoration(labelText: 'Type'),
+              items: const [
+                DropdownMenuItem(value: 'fixed', child: Text('Fixed')),
+                DropdownMenuItem(
+                    value: 'percentage', child: Text('Percentage')),
+              ],
+              onChanged: (value) => type = value ?? 'fixed',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, {'amount': 0, 'type': type}),
+            child: const Text('Clear'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, {
+              'amount': double.tryParse(amountCtrl.text) ?? 0,
+              'type': type,
+            }),
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+    amountCtrl.dispose();
+    if (result == null) return;
+    setState(() {
+      _discountAmount = _asDouble(result['amount']) ?? 0;
+      _discountType = result['type'] as String;
+    });
+    sl<PosBloc>().add(SetDiscountEvent(_discountAmount, _discountType));
+    sl<PosBloc>()
+        .add(ValidateCartEvent(locationId: sl<AuthBloc>().state.selectedLocationId));
+  }
+
+  Future<void> _showTaxDialog() async {
+    final rates = _taxRatesFromSettings(sl<PosBloc>().state.posSettings);
+    final selected = await showDialog<Map<String, int?>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Order Tax'),
+        content: SizedBox(
+          width: 360,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                title: const Text('None'),
+                trailing: _taxRateId == null
+                    ? const Icon(Icons.check, color: Colors.blue)
+                    : null,
+                onTap: () => Navigator.pop(context, {'id': null}),
+              ),
+              ...rates.map((rate) {
+                final id = _asInt(rate['id']);
+                return ListTile(
+                  title: Text(rate['name']?.toString() ?? ''),
+                  subtitle: Text('${_asDouble(rate['amount']) ?? 0}%'),
+                  trailing: id == _taxRateId
+                      ? const Icon(Icons.check, color: Colors.blue)
+                      : null,
+                  onTap: () => Navigator.pop(context, {'id': id}),
+                );
+              }),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (selected == null) return;
+    final selectedId = selected['id'];
+    setState(() => _taxRateId = selectedId);
+    sl<PosBloc>().add(SetTaxRateEvent(selectedId));
+    sl<PosBloc>()
+        .add(ValidateCartEvent(locationId: sl<AuthBloc>().state.selectedLocationId));
   }
 
   Widget _buildSearchBar({bool compact = false}) => Padding(
@@ -783,21 +1158,13 @@ class _PosScreenState extends State<PosScreen> {
         _asDouble(product['selling_price']) ??
         0;
     final basePrice = _asDouble(variation['default_sell_price']) ?? price;
-    final stockList = (variation['stock'] as List?) ??
-        (variation['variation_location_details'] as List?) ??
-        (product['stock_details'] as List?) ??
-        const [];
-    final totalStock = _stockTotal(stockList);
+    final totalStock = productStockTotal(product, variation);
     final alertQty = _asDouble(product['alert_quantity']) ?? 0;
     final enableStock = _asBool(product['enable_stock']);
     final isLowStock = enableStock && totalStock <= alertQty;
     final sku =
         variation['sub_sku']?.toString() ?? product['sku']?.toString() ?? '';
-    final unit = ((product['unit'] as Map?)?['short_name'] ??
-            product['unit_name'] ??
-            product['unit'] ??
-            'pcs')
-        .toString();
+    final unit = productUnitLabel(product);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -872,7 +1239,7 @@ class _PosScreenState extends State<PosScreen> {
                       Center(child: SkuChip(sku: sku, dense: true)),
                     ],
                     if (enableStock)
-                      Text('${_formatQty(totalStock)} $unit(s) in stock',
+                      Text('${_formatQty(totalStock)} $unit in stock',
                           style: TextStyle(
                               fontSize: 10,
                               color:
@@ -905,6 +1272,44 @@ bool _isFeaturedProduct(Map<String, dynamic> product) {
   return false;
 }
 
+List<Map<String, dynamic>> _taxRatesFromSettings(
+    Map<String, dynamic>? settings) {
+  final values = settings?['tax_rates'];
+  if (values is List) {
+    return values
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+  return const [];
+}
+
+List<Map<String, dynamic>> _flattenCategoryItems(
+  List<Map<String, dynamic>> categories, {
+  int depth = 0,
+}) {
+  final items = <Map<String, dynamic>>[];
+  for (final category in categories) {
+    final item = Map<String, dynamic>.from(category);
+    final name = item['name']?.toString() ?? '';
+    final prefix = depth == 0 ? '' : '${List.filled(depth, '  ').join()}- ';
+    item['display_name'] = '$prefix$name';
+    items.add(item);
+
+    final subCategories = item['sub_categories'];
+    if (subCategories is List && subCategories.isNotEmpty) {
+      items.addAll(_flattenCategoryItems(
+        subCategories
+            .whereType<Map>()
+            .map((subCategory) => Map<String, dynamic>.from(subCategory))
+            .toList(),
+        depth: depth + 1,
+      ));
+    }
+  }
+  return items;
+}
+
 Map<String, dynamic> _firstVariation(Map<String, dynamic> product) {
   return firstProductVariation(product);
 }
@@ -932,17 +1337,6 @@ bool _asBool(dynamic value) {
   if (value is num) return value != 0;
   final text = value?.toString().toLowerCase();
   return text == '1' || text == 'true' || text == 'yes';
-}
-
-double _stockTotal(List stockList) {
-  return stockList.fold<double>(0, (sum, item) {
-    if (item is! Map) return sum;
-    final direct = _asDouble(item['qty_available']);
-    if (direct != null) return sum + direct;
-    final locations = item['locations'];
-    if (locations is List) return sum + _stockTotal(locations);
-    return sum;
-  });
 }
 
 String _formatQty(double value) {

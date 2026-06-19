@@ -101,7 +101,9 @@ class _PurchaseListScreenState extends State<PurchaseListScreen> {
                               icon: const Icon(Icons.edit_outlined, size: 20),
                               onPressed: purchaseId == null
                                   ? null
-                                  : () => _showEditNotReady(context),
+                                  : () => context.go(
+                                      '/purchases/$purchaseId/edit',
+                                    ),
                             ),
                             IconButton(
                               tooltip: 'Delete purchase',
@@ -118,14 +120,6 @@ class _PurchaseListScreenState extends State<PurchaseListScreen> {
                 },
               ));
         }),
-      ),
-    );
-  }
-
-  void _showEditNotReady(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Purchase edit action is not connected to the API yet'),
       ),
     );
   }

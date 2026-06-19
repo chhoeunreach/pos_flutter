@@ -18,6 +18,13 @@ class StockTransferScreen extends StatefulWidget {
 
 class _StockTransferScreenState extends State<StockTransferScreen> {
   late Future<List<Map<String, dynamic>>> _transfersFuture;
+  int? _fromLocationId;
+  int? _toLocationId;
+  int? _productId;
+  String? _status;
+  DateTime? _startDate;
+  DateTime? _endDate;
+  String? _productName;
 
   @override
   void initState() {
@@ -26,7 +33,14 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
   }
 
   void _load() {
-    _transfersFuture = sl<StockRepository>().getTransfers();
+    _transfersFuture = sl<StockRepository>().getTransfers(
+      locationId: _fromLocationId,
+      locationToId: _toLocationId,
+      productId: _productId,
+      status: _status,
+      startDate: _startDate,
+      endDate: _endDate,
+    );
   }
 
   Future<void> _openCreate() async {
@@ -68,23 +82,236 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
           }
 
           final rows = _tableRows(snapshot.data ?? []);
-          if (rows.isEmpty) {
-            return const AppEmptyWidget(
-              message: 'No transfers found',
-              icon: Icons.swap_horiz,
-            );
-          }
+          final summary = _TransferSummary.fromRows(rows);
 
           return RefreshIndicator(
             onRefresh: () async => setState(_load),
             child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
-              children: [_TransferTable(rows: rows)],
+              children: [
+                _buildFilterPanel(),
+                const SizedBox(height: 12),
+                _TransferSummaryCards(summary: summary),
+                const SizedBox(height: 12),
+                if (rows.isEmpty)
+                  const AppEmptyWidget(
+                    message: 'No transfers found',
+                    icon: Icons.swap_horiz,
+                  )
+                else
+                  _TransferTable(rows: rows),
+              ],
             ),
           );
         },
       ),
     );
+  }
+
+  Widget _buildFilterPanel() {
+    final locations = sl<AuthBloc>().state.locations;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Filters', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            LayoutBuilder(builder: (context, constraints) {
+              final compact = constraints.maxWidth < 760;
+              final fields = [
+                _locationFilter(
+                  label: 'Location From',
+                  value: _fromLocationId,
+                  locations: locations,
+                  onChanged: (value) {
+                    setState(() {
+                      _fromLocationId = value;
+                      _load();
+                    });
+                  },
+                ),
+                _locationFilter(
+                  label: 'Location To',
+                  value: _toLocationId,
+                  locations: locations,
+                  onChanged: (value) {
+                    setState(() {
+                      _toLocationId = value;
+                      _load();
+                    });
+                  },
+                ),
+                _statusFilter(),
+                _dateRangeFilter(),
+              ];
+              if (compact) {
+                return Column(
+                  children: fields
+                      .map((field) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: field,
+                          ))
+                      .toList(),
+                );
+              }
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: fields
+                    .map((field) => SizedBox(width: 260, child: field))
+                    .toList(),
+              );
+            }),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _pickProductFilter,
+                  icon: const Icon(Icons.search),
+                  label: Text(_productName ?? 'Product'),
+                ),
+                if (_productId != null)
+                  IconButton.outlined(
+                    tooltip: 'Clear product',
+                    onPressed: () {
+                      setState(() {
+                        _productId = null;
+                        _productName = null;
+                        _load();
+                      });
+                    },
+                    icon: const Icon(Icons.close),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.filter_alt_off),
+                  label: const Text('Clear'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _locationFilter({
+    required String label,
+    required int? value,
+    required List<Map<String, dynamic>> locations,
+    required ValueChanged<int?> onChanged,
+  }) {
+    return DropdownButtonFormField<int?>(
+      key: ValueKey('$label-$value-${locations.length}'),
+      initialValue: value,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: const Icon(Icons.store, size: 18),
+      ),
+      items: [
+        const DropdownMenuItem<int?>(value: null, child: Text('All')),
+        ...locations.map((location) => DropdownMenuItem<int?>(
+              value: _asInt(location['id']),
+              child: Text(location['name']?.toString() ?? ''),
+            )),
+      ],
+      onChanged: onChanged,
+    );
+  }
+
+  Widget _statusFilter() {
+    return DropdownButtonFormField<String?>(
+      key: ValueKey('status-$_status'),
+      initialValue: _status,
+      decoration: const InputDecoration(
+        labelText: 'Status',
+        prefixIcon: Icon(Icons.flag_outlined, size: 18),
+      ),
+      items: const [
+        DropdownMenuItem<String?>(value: null, child: Text('All')),
+        DropdownMenuItem(value: 'pending', child: Text('Pending')),
+        DropdownMenuItem(value: 'in_transit', child: Text('In Transit')),
+        DropdownMenuItem(value: 'completed', child: Text('Completed')),
+      ],
+      onChanged: (value) {
+        setState(() {
+          _status = value;
+          _load();
+        });
+      },
+    );
+  }
+
+  Widget _dateRangeFilter() {
+    final label = _startDate == null || _endDate == null
+        ? 'Date Range'
+        : '${_yyyyMmDd(_startDate!)} - ${_yyyyMmDd(_endDate!)}';
+    return OutlinedButton.icon(
+      onPressed: _pickDateRange,
+      icon: const Icon(Icons.date_range),
+      label: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(label, overflow: TextOverflow.ellipsis),
+      ),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 56),
+        alignment: Alignment.centerLeft,
+      ),
+    );
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+      initialDateRange: _startDate != null && _endDate != null
+          ? DateTimeRange(start: _startDate!, end: _endDate!)
+          : null,
+    );
+    if (picked == null) return;
+    setState(() {
+      _startDate = picked.start;
+      _endDate = picked.end;
+      _load();
+    });
+  }
+
+  Future<void> _pickProductFilter() async {
+    final products = await sl<ProductRepository>().getAll();
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (_) => ProductSearchDialog(
+        products: products,
+        onSearch: (query) => sl<ProductRepository>().getAll(search: query),
+        onSelected: (product) {
+          setState(() {
+            _productId = _asInt(product['id']);
+            _productName = product['name']?.toString() ??
+                productDisplayName(product, _firstVariation(product));
+            _load();
+          });
+        },
+      ),
+    );
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _fromLocationId = null;
+      _toLocationId = null;
+      _productId = null;
+      _productName = null;
+      _status = null;
+      _startDate = null;
+      _endDate = null;
+      _load();
+    });
   }
 }
 
@@ -98,12 +325,14 @@ class StockTransferFormScreen extends StatefulWidget {
 
 class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _refNoController = TextEditingController();
   final _notesController = TextEditingController();
   final _shippingController = TextEditingController(text: '0');
   final List<_TransferProduct> _products = [];
   DateTime _date = DateTime.now();
   int? _sourceLocationId;
   int? _destinationLocationId;
+  String _status = 'completed';
   bool _isSaving = false;
   String? _error;
 
@@ -123,6 +352,7 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
 
   @override
   void dispose() {
+    _refNoController.dispose();
     _notesController.dispose();
     _shippingController.dispose();
     for (final product in _products) {
@@ -155,10 +385,7 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
               sku: variation['sub_sku']?.toString() ??
                   product['sku']?.toString() ??
                   '',
-              unit: ((product['unit'] as Map?)?['short_name'] ??
-                      product['unit_name'] ??
-                      'pcs')
-                  .toString(),
+              unit: productUnitLabel(product),
               unitCost: _asDouble(variation['default_purchase_price']) ??
                   _asDouble(product['default_purchase_price']) ??
                   _asDouble(variation['default_sell_price']) ??
@@ -225,6 +452,8 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
         'location_id': _sourceLocationId,
         'transfer_location_id': _destinationLocationId,
         'transaction_date': _yyyyMmDd(_date),
+        'ref_no': _refNoController.text.trim(),
+        'status': _status,
         'shipping_charges': _asDouble(_shippingController.text) ?? 0,
         'additional_notes': _notesController.text.trim(),
         'products': lines,
@@ -272,6 +501,55 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
                     Row(
                       children: [
                         Expanded(
+                          child: InkWell(
+                            onTap: _pickDate,
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Date *',
+                                prefixIcon: Icon(Icons.calendar_today),
+                              ),
+                              child: Text(_yyyyMmDd(_date)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _refNoController,
+                            decoration: const InputDecoration(
+                              labelText: 'Reference No.',
+                              prefixIcon: Icon(Icons.tag),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            initialValue: _status,
+                            decoration: const InputDecoration(
+                              labelText: 'Status *',
+                              prefixIcon: Icon(Icons.flag_outlined),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'pending', child: Text('Pending')),
+                              DropdownMenuItem(
+                                  value: 'in_transit',
+                                  child: Text('In Transit')),
+                              DropdownMenuItem(
+                                  value: 'completed',
+                                  child: Text('Completed')),
+                            ],
+                            onChanged: (value) => setState(
+                                () => _status = value ?? 'completed'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
                           child: DropdownButtonFormField<int>(
                             initialValue: _sourceLocationId,
                             decoration: const InputDecoration(
@@ -313,19 +591,6 @@ class _StockTransferFormScreenState extends State<StockTransferFormScreen> {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: _pickDate,
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Transfer Date',
-                                prefixIcon: Icon(Icons.calendar_today),
-                              ),
-                              child: Text(_yyyyMmDd(_date)),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
                             controller: _shippingController,
@@ -472,29 +737,30 @@ class _TransferTable extends StatelessWidget {
           headingTextStyle: headerStyle,
           columns: const [
             DataColumn(label: Text('Date')),
-            DataColumn(label: Text('SKU')),
-            DataColumn(label: Text('Product')),
-            DataColumn(label: Text('Quantity'), numeric: true),
-            DataColumn(label: Text('Location (From)')),
-            DataColumn(label: Text('Location (To)')),
-            DataColumn(label: Text('Invoice No.')),
-            DataColumn(label: Text('Added By')),
+            DataColumn(label: Text('Ref No.')),
+            DataColumn(label: Text('Location From')),
+            DataColumn(label: Text('Location To')),
+            DataColumn(label: Text('Status')),
+            DataColumn(label: Text('Total Qty'), numeric: true),
+            DataColumn(label: Text('Shipping'), numeric: true),
+            DataColumn(label: Text('Total Amount'), numeric: true),
             DataColumn(label: Text('Additional Notes')),
+            DataColumn(label: Text('Action')),
           ],
           rows: rows
               .map(
                 (row) => DataRow(
                   cells: [
                     DataCell(_smallText(row.date, width: 120)),
-                    DataCell(SizedBox(
-                        width: 100, child: SkuChip(sku: row.sku, dense: true))),
-                    DataCell(_smallText(row.product, width: 180)),
-                    DataCell(Text(_formatQty(row.quantity))),
+                    DataCell(_smallText(row.refNo, width: 130)),
                     DataCell(_smallText(row.fromLocation, width: 150)),
                     DataCell(_smallText(row.toLocation, width: 150)),
-                    DataCell(_smallText(row.invoiceNo, width: 120)),
-                    DataCell(_smallText(row.addedBy, width: 120)),
+                    DataCell(_TransferStatusChip(status: row.status)),
+                    DataCell(Text(_formatQty(row.totalQty))),
+                    DataCell(Text(MoneyFormatter.instance.format(row.shipping))),
+                    DataCell(Text(MoneyFormatter.instance.format(row.total))),
                     DataCell(_smallText(row.notes, width: 200)),
+                    DataCell(_TransferActions(row: row)),
                   ],
                 ),
               )
@@ -512,6 +778,187 @@ class _TransferTable extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 12),
+      ),
+    );
+  }
+}
+
+class _TransferSummaryCards extends StatelessWidget {
+  final _TransferSummary summary;
+
+  const _TransferSummaryCards({required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = constraints.maxWidth < 720
+          ? constraints.maxWidth
+          : (constraints.maxWidth - 24) / 3;
+      return Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          _summaryCard(context, 'Transfers', summary.count.toString(),
+              Icons.swap_horiz, Colors.indigo, width),
+          _summaryCard(context, 'Total Qty', _formatQty(summary.totalQty),
+              Icons.inventory_2_outlined, Colors.orange, width),
+          _summaryCard(context, 'Total Amount',
+              MoneyFormatter.instance.format(summary.totalAmount),
+              Icons.payments_outlined, Colors.green, width),
+        ],
+      );
+    });
+  }
+
+  Widget _summaryCard(BuildContext context, String label, String value,
+      IconData icon, Color color, double width) {
+    return SizedBox(
+      width: width,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: color.withValues(alpha: 0.12),
+                child: Icon(icon, color: color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TransferStatusChip extends StatelessWidget {
+  final String status;
+
+  const _TransferStatusChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = status == 'final' ? 'completed' : status;
+    final color = switch (normalized) {
+      'completed' => Colors.green,
+      'in_transit' => Colors.amber,
+      'pending' => Colors.red,
+      _ => Colors.grey,
+    };
+    final label = switch (normalized) {
+      'completed' => 'Completed',
+      'in_transit' => 'In Transit',
+      'pending' => 'Pending',
+      _ => normalized.isEmpty ? '-' : normalized,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _TransferActions extends StatelessWidget {
+  final _TransferTableRow row;
+
+  const _TransferActions({required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'View',
+          onPressed: () => _showTransferDetails(context, row),
+          icon: const Icon(Icons.visibility_outlined, size: 18),
+        ),
+        IconButton(
+          tooltip: 'Print',
+          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Print is available on web only')),
+          ),
+          icon: const Icon(Icons.print_outlined, size: 18),
+        ),
+      ],
+    );
+  }
+
+  void _showTransferDetails(BuildContext context, _TransferTableRow row) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(row.refNo.isEmpty ? 'Transfer' : row.refNo),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _detail('Date', row.date),
+              _detail('From', row.fromLocation),
+              _detail('To', row.toLocation),
+              _detail('Status', _statusLabel(row.status)),
+              _detail('Total Qty', _formatQty(row.totalQty)),
+              _detail('Shipping', MoneyFormatter.instance.format(row.shipping)),
+              _detail('Total', MoneyFormatter.instance.format(row.total)),
+              _detail('Added By', row.addedBy),
+              _detail('Notes', row.notes),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detail(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          Expanded(child: Text(value.isEmpty ? '-' : value)),
+        ],
       ),
     );
   }
@@ -786,26 +1233,48 @@ class _TransferLot {
 
 class _TransferTableRow {
   final String date;
-  final String sku;
-  final String product;
-  final double quantity;
+  final String refNo;
   final String fromLocation;
   final String toLocation;
-  final String invoiceNo;
+  final String status;
+  final double totalQty;
+  final double shipping;
+  final double total;
   final String addedBy;
   final String notes;
 
   const _TransferTableRow({
     required this.date,
-    required this.sku,
-    required this.product,
-    required this.quantity,
+    required this.refNo,
     required this.fromLocation,
     required this.toLocation,
-    required this.invoiceNo,
+    required this.status,
+    required this.totalQty,
+    required this.shipping,
+    required this.total,
     required this.addedBy,
     required this.notes,
   });
+}
+
+class _TransferSummary {
+  final int count;
+  final double totalQty;
+  final double totalAmount;
+
+  const _TransferSummary({
+    required this.count,
+    required this.totalQty,
+    required this.totalAmount,
+  });
+
+  factory _TransferSummary.fromRows(List<_TransferTableRow> rows) {
+    return _TransferSummary(
+      count: rows.length,
+      totalQty: rows.fold(0, (sum, row) => sum + row.totalQty),
+      totalAmount: rows.fold(0, (sum, row) => sum + row.total),
+    );
+  }
 }
 
 List<_TransferTableRow> _tableRows(List<Map<String, dynamic>> transfers) {
@@ -815,46 +1284,29 @@ List<_TransferTableRow> _tableRows(List<Map<String, dynamic>> transfers) {
     final destination = transfer['transfer_parent'] as Map?;
     final createdBy = transfer['created_by_user'] as Map?;
     final lines = _lineList(transfer);
-
-    if (lines.isEmpty) {
-      rows.add(_TransferTableRow(
-        date: transfer['transaction_date']?.toString() ?? '',
-        sku: '',
-        product: '',
-        quantity: 0,
-        fromLocation: location?['name']?.toString() ?? '',
-        toLocation: (destination?['location'] as Map?)?['name']?.toString() ??
-            destination?['location_name']?.toString() ??
-            '',
-        invoiceNo: transfer['ref_no']?.toString() ?? '',
-        addedBy: _userName(createdBy),
-        notes: transfer['additional_notes']?.toString() ?? '',
-      ));
-      continue;
-    }
-
-    for (final line in lines) {
-      final product = line['product'] as Map?;
-      final variation = (line['variations'] ?? line['variation']) as Map?;
-      rows.add(_TransferTableRow(
-        date: transfer['transaction_date']?.toString() ?? '',
-        sku: variation?['sub_sku']?.toString() ??
-            line['sub_sku']?.toString() ??
-            product?['sku']?.toString() ??
-            '',
-        product: product?['name']?.toString() ??
-            line['product_name']?.toString() ??
-            '',
-        quantity: _asDouble(line['quantity']) ?? 0,
-        fromLocation: location?['name']?.toString() ?? '',
-        toLocation: (destination?['location'] as Map?)?['name']?.toString() ??
-            destination?['location_name']?.toString() ??
-            '',
-        invoiceNo: transfer['ref_no']?.toString() ?? '',
-        addedBy: _userName(createdBy),
-        notes: transfer['additional_notes']?.toString() ?? '',
-      ));
-    }
+    final toLocation =
+        transfer['location_to']?.toString().trim().isNotEmpty == true
+            ? transfer['location_to'].toString()
+            : (destination?['location'] as Map?)?['name']?.toString() ??
+                destination?['location_name']?.toString() ??
+                '';
+    final totalQty = _asDouble(transfer['total_qty']) ??
+        lines.fold<double>(
+            0, (sum, line) => sum + (_asDouble(line['quantity']) ?? 0));
+    rows.add(_TransferTableRow(
+      date: transfer['transaction_date']?.toString() ?? '',
+      refNo: transfer['ref_no']?.toString() ?? '',
+      fromLocation: transfer['location_from']?.toString() ??
+          location?['name']?.toString() ??
+          '',
+      toLocation: toLocation,
+      status: transfer['status']?.toString() ?? '',
+      totalQty: totalQty,
+      shipping: _asDouble(transfer['shipping_charges']) ?? 0,
+      total: _asDouble(transfer['final_total']) ?? 0,
+      addedBy: transfer['created_by_name']?.toString() ?? _userName(createdBy),
+      notes: transfer['additional_notes']?.toString() ?? '',
+    ));
   }
   return rows;
 }
@@ -879,6 +1331,16 @@ String _userName(Map? user) {
         user['first_name']?.toString(),
         user['last_name']?.toString(),
       ].whereType<String>().where((v) => v.isNotEmpty).join(' ');
+}
+
+String _statusLabel(String status) {
+  final normalized = status == 'final' ? 'completed' : status;
+  return switch (normalized) {
+    'completed' => 'Completed',
+    'in_transit' => 'In Transit',
+    'pending' => 'Pending',
+    _ => normalized,
+  };
 }
 
 Map<String, dynamic> _firstVariation(Map<String, dynamic> product) {

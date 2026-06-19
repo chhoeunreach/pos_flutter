@@ -55,6 +55,11 @@ add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+set(LOCAL_NUGET "${CMAKE_BINARY_DIR}/_deps/nuget-src/nuget.exe")
+if(EXISTS "${LOCAL_NUGET}")
+  set(NUGET "${LOCAL_NUGET}" CACHE FILEPATH "Path to nuget.exe" FORCE)
+endif()
+
 include(flutter/generated_plugins.cmake)
 
 # Suppress experimental coroutine deprecation error in permission_handler_windows

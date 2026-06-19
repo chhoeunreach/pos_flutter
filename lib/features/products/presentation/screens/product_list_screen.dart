@@ -85,11 +85,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                   itemBuilder: (context, i) {
                     final p = state.products[i];
                     final variation = firstProductVariation(p);
-                    final stockList = variation['stock'] as List? ?? [];
-                    final totalStock = stockList.fold<double>(
-                        0,
-                        (sum, s) =>
-                            sum + _asDouble((s as Map)['qty_available']));
+                    final totalStock = productStockTotal(p, variation);
                     final alert = _asDouble(p['alert_quantity']);
                     final isLow =
                         _asBool(p['enable_stock']) && totalStock <= alert;

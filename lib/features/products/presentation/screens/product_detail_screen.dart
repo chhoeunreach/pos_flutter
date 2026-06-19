@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/utils/money_formatter.dart';
 import '../../../../core/mock/mock_data.dart';
+import '../../../../core/utils/product_variation_utils.dart';
 
 class ProductDetailScreen extends StatelessWidget {
   final int id;
@@ -13,7 +14,7 @@ class ProductDetailScreen extends StatelessWidget {
     if (product.isEmpty) return Scaffold(appBar: AppBar(title: const Text('Product')), body: const Center(child: Text('Not found')));
 
     final variation = (product['variations'] as List?)?.isNotEmpty == true ? (product['variations'] as List).first as Map<String, dynamic> : null;
-    final stockList = variation?['stock'] as List? ?? [];
+    final stockList = productStockList(product, variation);
     final locations = product['product_locations'] as List? ?? [];
     final sellPrice = (variation?['sell_price_inc_tax'] as num?)?.toDouble() ?? (product['default_selling_price'] as num?)?.toDouble() ?? 0;
     final purchasePrice = (variation?['default_purchase_price'] as num?)?.toDouble() ?? (product['default_purchase_price'] as num?)?.toDouble() ?? 0;
@@ -32,7 +33,7 @@ class ProductDetailScreen extends StatelessWidget {
         const SizedBox(height: 24),
         _infoRow(context, 'Category', (product['category'] as Map?)?.let((c) => c['name'] as String) ?? '-'),
         _infoRow(context, 'Brand', (product['brand'] as Map?)?.let((b) => b['name'] as String) ?? '-'),
-        _infoRow(context, 'Unit', (product['unit'] as Map?)?.let((u) => u['short_name'] as String) ?? 'pcs'),
+        _infoRow(context, 'Unit', productUnitLabel(product)),
         _infoRow(context, 'Type', product['type'] ?? 'single'),
         const Divider(height: 24),
         _infoRow(context, 'Selling Price', MoneyFormatter.instance.format(sellPrice), bold: true),

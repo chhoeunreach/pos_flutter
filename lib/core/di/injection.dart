@@ -41,7 +41,7 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton<AuthBloc>(() => AuthBloc(sl()));
   sl.registerLazySingleton<DashboardBloc>(() => DashboardBloc(sl()));
   sl.registerLazySingleton<PosBloc>(() => PosBloc(sl()));
-  sl.registerLazySingleton<ProductBloc>(() => ProductBloc(sl()));
+  sl.registerLazySingleton<ProductBloc>(() => ProductBloc(sl(), sl()));
   sl.registerLazySingleton<ContactBloc>(() => ContactBloc(sl()));
   sl.registerLazySingleton<TransactionBloc>(() => TransactionBloc(sl()));
   sl.registerLazySingleton<StockBloc>(() => StockBloc(sl()));
@@ -433,8 +433,12 @@ class PosState extends Equatable {
     this.saleResult,
   });
 
-  double get subtotal => items.fold(0, (s, i) => s + i.lineTotal);
+  double get subtotal =>
+      _toDouble(validatedTotals?['total_before_tax']) ??
+      items.fold(0.0, (s, i) => s + i.lineTotal);
   double get discountAmount {
+    final apiDiscount = _toDouble(validatedTotals?['discount']);
+    if (apiDiscount != null) return apiDiscount;
     if (discountType == 'percentage') {
       return subtotal * discount / 100;
     }
@@ -442,12 +446,16 @@ class PosState extends Equatable {
   }
 
   double get tax {
+    final apiTax = _toDouble(validatedTotals?['tax']);
+    if (apiTax != null) return apiTax;
     final taxable = subtotal - discountAmount;
-    final taxRate = _toDouble(posSettings?['default_tax_rate']);
+    final taxRate = _toDouble(posSettings?['default_tax_rate']) ?? 0;
     return taxable * taxRate / 100;
   }
 
-  double get total => subtotal - discountAmount + tax;
+  double get total =>
+      _toDouble(validatedTotals?['final_total']) ??
+      subtotal - discountAmount + tax;
 
   PosState copyWith({
     List<CartItem>? items,
@@ -455,23 +463,29 @@ class PosState extends Equatable {
     Map<String, dynamic>? posSettings,
     double? discount,
     String? discountType,
+    bool clearDiscountType = false,
     int? taxRateId,
+    bool clearTaxRateId = false,
     String? error,
     bool? isLoading,
     Map<String, dynamic>? validatedTotals,
+    bool clearValidatedTotals = false,
     Map<String, dynamic>? saleResult,
+    bool clearSaleResult = false,
   }) =>
       PosState(
         items: items ?? this.items,
         customer: customer ?? this.customer,
         posSettings: posSettings ?? this.posSettings,
         discount: discount ?? this.discount,
-        discountType: discountType ?? this.discountType,
-        taxRateId: taxRateId ?? this.taxRateId,
+        discountType:
+            clearDiscountType ? null : discountType ?? this.discountType,
+        taxRateId: clearTaxRateId ? null : taxRateId ?? this.taxRateId,
         error: error,
         isLoading: isLoading ?? this.isLoading,
-        validatedTotals: validatedTotals ?? this.validatedTotals,
-        saleResult: saleResult ?? this.saleResult,
+        validatedTotals:
+            clearValidatedTotals ? null : validatedTotals ?? this.validatedTotals,
+        saleResult: clearSaleResult ? null : saleResult ?? this.saleResult,
       );
 
   @override
@@ -535,7 +549,19 @@ class SetDiscountEvent extends PosEvent {
   List<Object?> get props => [amount, type];
 }
 
-class ValidateCartEvent extends PosEvent {}
+class SetTaxRateEvent extends PosEvent {
+  final int? taxRateId;
+  SetTaxRateEvent(this.taxRateId);
+  @override
+  List<Object?> get props => [taxRateId];
+}
+
+class ValidateCartEvent extends PosEvent {
+  final int? locationId;
+  ValidateCartEvent({this.locationId});
+  @override
+  List<Object?> get props => [locationId];
+}
 
 class SubmitSaleEvent extends PosEvent {
   final double paidAmount;
@@ -543,30 +569,53 @@ class SubmitSaleEvent extends PosEvent {
   final List<Map<String, dynamic>>? payments;
   final String? paymentStatus;
   final int? accountId;
+  final int? locationId;
+  final String status;
+  final bool isSuspend;
+  final bool isCreditSale;
+  final String? saleNote;
+  final String? staffNote;
   SubmitSaleEvent(
       {required this.paidAmount,
       required this.paymentMethod,
       this.payments,
       this.paymentStatus,
-      this.accountId});
+      this.accountId,
+      this.locationId,
+      this.status = 'final',
+      this.isSuspend = false,
+      this.isCreditSale = false,
+      this.saleNote,
+      this.staffNote});
   @override
-  List<Object?> get props =>
-      [paidAmount, paymentMethod, payments, paymentStatus, accountId];
+  List<Object?> get props => [
+        paidAmount,
+        paymentMethod,
+        payments,
+        paymentStatus,
+        accountId,
+        locationId,
+        status,
+        isSuspend,
+        isCreditSale,
+        saleNote,
+        staffNote,
+      ];
 }
 
 class ClearCartEvent extends PosEvent {}
 
 class ResetPosEvent extends PosEvent {}
 
-double _toDouble(dynamic value) {
+double? _toDouble(dynamic value) {
   if (value is num) return value.toDouble();
-  if (value is String) return double.tryParse(value.replaceAll(',', '')) ?? 0;
+  if (value is String) return double.tryParse(value.replaceAll(',', ''));
   if (value is Map) {
     for (final key in const ['amount', 'value', 'rate', 'default_tax_rate']) {
       if (value.containsKey(key)) return _toDouble(value[key]);
     }
   }
-  return 0;
+  return null;
 }
 
 class PosBloc extends Bloc<Object, PosState> {
@@ -579,21 +628,31 @@ class PosBloc extends Bloc<Object, PosState> {
             .where((i) =>
                 i.productId != e.productId || i.variationId != e.variationId)
             .toList(),
-        validatedTotals: null,
-        saleResult: null)));
+        clearValidatedTotals: true,
+        clearSaleResult: true)));
     on<UpdateCartItemQtyEvent>(_onUpdateQty);
     on<SetCustomerEvent>(
         (e, emit) => emit(state.copyWith(customer: e.customer)));
     on<SetDiscountEvent>((e, emit) =>
-        emit(state.copyWith(discount: e.amount, discountType: e.type)));
+        emit(state.copyWith(
+            discount: e.amount,
+            discountType: e.type,
+            clearValidatedTotals: true,
+            clearSaleResult: true)));
+    on<SetTaxRateEvent>((e, emit) => emit(state.copyWith(
+        taxRateId: e.taxRateId,
+        clearTaxRateId: e.taxRateId == null,
+        clearValidatedTotals: true,
+        clearSaleResult: true)));
     on<ValidateCartEvent>(_onValidateCart);
     on<SubmitSaleEvent>(_onSubmitSale);
     on<ClearCartEvent>((e, emit) => emit(state.copyWith(
         items: [],
         discount: 0,
-        discountType: null,
-        validatedTotals: null,
-        saleResult: null)));
+        clearDiscountType: true,
+        clearTaxRateId: true,
+        clearValidatedTotals: true,
+        clearSaleResult: true)));
     on<ResetPosEvent>((e, emit) => emit(const PosState()));
   }
 
@@ -602,7 +661,11 @@ class PosBloc extends Bloc<Object, PosState> {
     try {
       final res = await _repo.getPosSettings();
       if (res['success'] == true) {
-        emit(state.copyWith(posSettings: res['data'] as Map<String, dynamic>?));
+        final data = res['data'] as Map<String, dynamic>?;
+        final rawWalkIn = data?['walk_in_customer'];
+        final walkIn =
+            rawWalkIn is Map ? Map<String, dynamic>.from(rawWalkIn) : null;
+        emit(state.copyWith(posSettings: data, customer: walkIn));
       }
     } catch (_) {}
   }
@@ -617,7 +680,8 @@ class PosBloc extends Bloc<Object, PosState> {
     } else {
       items.add(e.item);
     }
-    emit(state.copyWith(items: items, validatedTotals: null, saleResult: null));
+    emit(state.copyWith(
+        items: items, clearValidatedTotals: true, clearSaleResult: true));
   }
 
   void _onUpdateQty(UpdateCartItemQtyEvent e, Emitter<PosState> emit) {
@@ -631,7 +695,8 @@ class PosBloc extends Bloc<Object, PosState> {
         items[idx] = items[idx].copyWith(quantity: e.quantity);
       }
     }
-    emit(state.copyWith(items: items, validatedTotals: null, saleResult: null));
+    emit(state.copyWith(
+        items: items, clearValidatedTotals: true, clearSaleResult: true));
   }
 
   Future<void> _onValidateCart(
@@ -655,7 +720,7 @@ class PosBloc extends Bloc<Object, PosState> {
         'discount_type': state.discountType,
         'discount_amount': state.discount,
         'tax_rate_id': state.taxRateId,
-        'location_id': 1,
+        'location_id': e.locationId,
       };
       final res = await _repo.validateCart(data);
       if (res['success'] == true) {
@@ -674,11 +739,21 @@ class PosBloc extends Bloc<Object, PosState> {
   Future<void> _onSubmitSale(SubmitSaleEvent e, Emitter<PosState> emit) async {
     emit(state.copyWith(isLoading: true, error: null));
     try {
+      final locationId = e.locationId;
+      if (locationId == null) {
+        emit(state.copyWith(isLoading: false, error: 'Select a location'));
+        return;
+      }
+      final customerId = _toInt(state.customer?['id']);
+      if (customerId == null) {
+        emit(state.copyWith(isLoading: false, error: 'Select a customer'));
+        return;
+      }
       final data = {
-        'contact_id': state.customer?['id'] ?? 1,
-        'location_id': 1,
+        'contact_id': customerId,
+        'location_id': locationId,
         'transaction_date': DateTime.now().toIso8601String(),
-        'status': 'final',
+        'status': e.status,
         'products': state.items
             .map((i) => {
                   'product_id': i.productId,
@@ -696,16 +771,20 @@ class PosBloc extends Bloc<Object, PosState> {
         'discount_type': state.discountType,
         'discount_amount': state.discount,
         'tax_rate_id': state.taxRateId,
-        'payments': e.payments ??
-            [
-              {
-                'method': e.paymentMethod,
-                'amount': e.paidAmount,
-                'paid_on': DateTime.now().toIso8601String(),
-                'account_id': e.accountId ?? 1,
-              }
-            ],
-        'is_suspend': false,
+        if (!e.isCreditSale && e.status == 'final')
+          'payments': e.payments ??
+              [
+                {
+                  'method': e.paymentMethod,
+                  'amount': e.paidAmount,
+                  'paid_on': DateTime.now().toIso8601String(),
+                  if (e.accountId != null) 'account_id': e.accountId,
+                }
+              ],
+        'is_suspend': e.isSuspend,
+        'is_credit_sale': e.isCreditSale,
+        'sale_note': e.saleNote,
+        'staff_note': e.staffNote,
         'shipping_charges': 0,
       };
       final res = await _repo.createSale(data);
@@ -720,6 +799,12 @@ class PosBloc extends Bloc<Object, PosState> {
       emit(state.copyWith(isLoading: false, error: e.toString()));
     }
   }
+}
+
+int? _toInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -794,6 +879,15 @@ class LoadProductsEvent {
       {this.categoryId, this.brandId, this.search, this.locationId});
 }
 
+class LoadPosProductsEvent {
+  final int? categoryId;
+  final int? brandId;
+  final String? search;
+  final int? locationId;
+  LoadPosProductsEvent(
+      {this.categoryId, this.brandId, this.search, this.locationId});
+}
+
 class LoadCategoriesEvent {}
 
 class LoadBrandsEvent {}
@@ -811,8 +905,10 @@ class LoadProductStockEvent {
 
 class ProductBloc extends Bloc<Object, ProductState> {
   final ProductRepository _repo;
-  ProductBloc(this._repo) : super(const ProductState()) {
+  final PosRepository _posRepo;
+  ProductBloc(this._repo, this._posRepo) : super(const ProductState()) {
     on<LoadProductsEvent>(_onLoad);
+    on<LoadPosProductsEvent>(_onLoadPosProducts);
     on<LoadCategoriesEvent>((e, emit) async {
       try {
         emit(state.copyWith(categories: await _repo.getCategories()));
@@ -847,6 +943,27 @@ class ProductBloc extends Bloc<Object, ProductState> {
       emit(state.copyWith(
           isLoading: false,
           products: await _repo.getAll(
+              categoryId: e.categoryId,
+              brandId: e.brandId,
+              search: e.search,
+              locationId: e.locationId)));
+    } catch (e) {
+      emit(state.copyWith(isLoading: false, error: e.toString()));
+    }
+  }
+
+  Future<void> _onLoadPosProducts(
+      LoadPosProductsEvent e, Emitter<ProductState> emit) async {
+    emit(state.copyWith(
+        isLoading: true,
+        error: null,
+        selectedCategoryId: e.categoryId,
+        selectedBrandId: e.brandId,
+        searchQuery: e.search ?? ''));
+    try {
+      emit(state.copyWith(
+          isLoading: false,
+          products: await _posRepo.getPosProducts(
               categoryId: e.categoryId,
               brandId: e.brandId,
               search: e.search,
@@ -1076,6 +1193,12 @@ class LoadPurchaseDetailEvent {
   LoadPurchaseDetailEvent(this.id);
 }
 
+class UpdatePurchaseEvent {
+  final int id;
+  final Map<String, dynamic> data;
+  UpdatePurchaseEvent(this.id, this.data);
+}
+
 class DeletePurchaseEvent {
   final int id;
   DeletePurchaseEvent(this.id);
@@ -1127,6 +1250,24 @@ class TransactionBloc extends Bloc<Object, TransactionState> {
       try {
         emit(state.copyWith(
             isLoading: false, detail: await _repo.getPurchaseById(e.id)));
+      } catch (e) {
+        emit(state.copyWith(isLoading: false, error: e.toString()));
+      }
+    });
+    on<UpdatePurchaseEvent>((e, emit) async {
+      emit(state.copyWith(isLoading: true, error: null, type: 'purchase'));
+      try {
+        final res = await _repo.updatePurchase(e.id, e.data);
+        if (res['success'] == true) {
+          emit(state.copyWith(
+              isLoading: false,
+              detail: res['data'] as Map<String, dynamic>?,
+              purchases: await _repo.getPurchases()));
+        } else {
+          emit(state.copyWith(
+              isLoading: false,
+              error: res['message'] as String? ?? 'Failed to update purchase'));
+        }
       } catch (e) {
         emit(state.copyWith(isLoading: false, error: e.toString()));
       }

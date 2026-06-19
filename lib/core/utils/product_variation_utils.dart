@@ -76,3 +76,64 @@ String productDisplayName(
   if (variationName == productName) return productName;
   return '$productName - $variationName';
 }
+
+String productUnitLabel(Map<String, dynamic> product) {
+  final unit = product['unit'];
+  if (unit is Map) {
+    for (final key in const ['short_name', 'actual_name', 'name']) {
+      final value = unit[key]?.toString().trim();
+      if (value != null && value.isNotEmpty && value != 'null') return value;
+    }
+  }
+
+  for (final key in const ['unit_name', 'unit_short_name']) {
+    final value = product[key]?.toString().trim();
+    if (value != null && value.isNotEmpty && value != 'null') return value;
+  }
+
+  if (unit is String) {
+    final value = unit.trim();
+    if (value.isNotEmpty && value != 'null') return value;
+  }
+
+  return 'pcs';
+}
+
+List productStockList(Map<String, dynamic> product,
+    [Map<String, dynamic>? variation]) {
+  final selectedVariation = variation ?? firstProductVariation(product);
+  for (final value in [
+    selectedVariation['stock'],
+    selectedVariation['variation_location_details'],
+    product['stock'],
+    product['stock_details'],
+    product['variation_location_details'],
+  ]) {
+    if (value is List) return value;
+  }
+  return const [];
+}
+
+double productStockTotal(Map<String, dynamic> product,
+    [Map<String, dynamic>? variation]) {
+  return _stockTotal(productStockList(product, variation));
+}
+
+double _stockTotal(List stockList) {
+  return stockList.fold<double>(0, (sum, item) {
+    if (item is! Map) return sum;
+    final direct = _asDouble(item['qty_available']) ??
+        _asDouble(item['stock']) ??
+        _asDouble(item['quantity']);
+    if (direct != null) return sum + direct;
+    final locations = item['locations'];
+    if (locations is List) return sum + _stockTotal(locations);
+    return sum;
+  });
+}
+
+double? _asDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value.replaceAll(',', '').trim());
+  return null;
+}

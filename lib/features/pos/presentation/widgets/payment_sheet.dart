@@ -5,11 +5,13 @@ import '../../../../core/utils/money_formatter.dart';
 class PaymentSheet extends StatefulWidget {
   final double total;
   final String initialMethod;
+  final int? locationId;
 
   const PaymentSheet({
     super.key,
     required this.total,
     this.initialMethod = 'cash',
+    this.locationId,
   });
 
   @override
@@ -19,6 +21,7 @@ class PaymentSheet extends StatefulWidget {
 class _PaymentSheetState extends State<PaymentSheet> {
   final _sellNoteController = TextEditingController();
   final _staffNoteController = TextEditingController();
+  final _paymentNoteController = TextEditingController();
   final List<_PaymentRowData> _rows = [];
 
   final List<Map<String, String>> _methods = const [
@@ -42,6 +45,7 @@ class _PaymentSheetState extends State<PaymentSheet> {
   void dispose() {
     _sellNoteController.dispose();
     _staffNoteController.dispose();
+    _paymentNoteController.dispose();
     for (final row in _rows) {
       row.dispose();
     }
@@ -183,6 +187,7 @@ class _PaymentSheetState extends State<PaymentSheet> {
               ),
               const SizedBox(height: 16),
               TextField(
+                controller: _paymentNoteController,
                 decoration: const InputDecoration(labelText: 'Payment note'),
                 minLines: 3,
                 maxLines: 4,
@@ -383,7 +388,8 @@ class _PaymentSheetState extends State<PaymentSheet> {
         'method': row.method,
         'amount': amount,
         'paid_on': DateTime.now().toIso8601String(),
-        'account_id': 1,
+        if (_paymentNoteController.text.trim().isNotEmpty)
+          'note': _paymentNoteController.text.trim(),
       });
     }
 
@@ -399,7 +405,9 @@ class _PaymentSheetState extends State<PaymentSheet> {
       paymentMethod: payments.first['method'] as String,
       payments: payments,
       paymentStatus: _totalPaying >= widget.total ? 'paid' : 'due',
-      accountId: 1,
+      locationId: widget.locationId,
+      saleNote: _sellNoteController.text.trim(),
+      staffNote: _staffNoteController.text.trim(),
     ));
     Navigator.of(context).pop();
   }

@@ -435,6 +435,17 @@ class TransactionRepositoryImpl implements TransactionRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> updatePurchase(
+      int id, Map<String, dynamic> data) async {
+    final res = await _api.put<Map<String, dynamic>>(
+      '/purchases/$id',
+      data: data,
+      fromJson: (json) => json as Map<String, dynamic>,
+    );
+    return {'success': res.success, 'message': res.message, 'data': res.data};
+  }
+
+  @override
   Future<void> deletePurchase(int id) async {
     await _api.delete('/purchases/$id');
   }
@@ -536,9 +547,21 @@ class StockRepositoryImpl implements StockRepository {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> getTransfers({int? locationId}) async {
+  Future<List<Map<String, dynamic>>> getTransfers({
+    int? locationId,
+    int? locationToId,
+    int? productId,
+    String? status,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
     final params = <String, dynamic>{'per_page': 100, 'type': 'sell_transfer'};
     if (locationId != null) params['location_id'] = locationId;
+    if (locationToId != null) params['location_to_id'] = locationToId;
+    if (productId != null) params['product_id'] = productId;
+    if (status != null && status.isNotEmpty) params['status'] = status;
+    if (startDate != null) params['start_date'] = _dateParam(startDate);
+    if (endDate != null) params['end_date'] = _dateParam(endDate);
     final res = await _api.getPaginated<Map<String, dynamic>>(
       '/stock/transfers',
       queryParams: params,
@@ -567,6 +590,9 @@ class StockRepositoryImpl implements StockRepository {
     return {'success': res.success, 'message': res.message, 'data': res.data};
   }
 }
+
+String _dateParam(DateTime date) =>
+    '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
 class PaymentRepositoryImpl implements PaymentRepository {
   final ApiClient _api;

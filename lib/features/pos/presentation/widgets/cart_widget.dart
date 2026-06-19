@@ -163,7 +163,11 @@ class CartWidget extends StatelessWidget {
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => BlocProvider.value(
-          value: sl<PosBloc>(), child: PaymentSheet(total: state.total)),
+          value: sl<PosBloc>(),
+          child: PaymentSheet(
+            total: state.total,
+            locationId: sl<AuthBloc>().state.selectedLocationId,
+          )),
     );
   }
 }

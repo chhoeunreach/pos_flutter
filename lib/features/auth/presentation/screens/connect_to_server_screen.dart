@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import '../../../../core/config/app_config.dart';
+import '../../../../core/config/server_presets.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/di/injection.dart';
 
@@ -17,6 +18,12 @@ class _ConnectToServerScreenState extends State<ConnectToServerScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _testing = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _urlController.text = AppConfig.serverUrl ?? ServerPresets.all.first.url;
+  }
 
   @override
   void dispose() {
@@ -40,6 +47,13 @@ class _ConnectToServerScreenState extends State<ConnectToServerScreen> {
 
   String _apiBaseUrl(String url) =>
       url.endsWith('/api/mobile') ? url : '$url/api/mobile';
+
+  void _selectPreset(ServerPreset preset) {
+    setState(() {
+      _urlController.text = preset.url;
+      _error = null;
+    });
+  }
 
   Future<void> _testConnection() async {
     if (!_formKey.currentState!.validate()) return;
@@ -130,7 +144,9 @@ class _ConnectToServerScreenState extends State<ConnectToServerScreen> {
                           .textTheme
                           .bodyMedium
                           ?.copyWith(color: Colors.grey)),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 28),
+                  _serverPresetPicker(),
+                  const SizedBox(height: 20),
                   TextFormField(
                     controller: _urlController,
                     decoration: const InputDecoration(
@@ -140,6 +156,7 @@ class _ConnectToServerScreenState extends State<ConnectToServerScreen> {
                     ),
                     keyboardType: TextInputType.url,
                     textInputAction: TextInputAction.go,
+                    onChanged: (_) => setState(() => _error = null),
                     onFieldSubmitted: (_) => _connect(),
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) {
@@ -199,6 +216,93 @@ class _ConnectToServerScreenState extends State<ConnectToServerScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _serverPresetPicker() {
+    final currentUrl = _urlController.text.trim();
+    final selected = currentUrl.isEmpty
+        ? null
+        : ServerPresets.match(_apiBaseUrl(_normalizeUrl(currentUrl)));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Choose server',
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: ServerPresets.all.map((preset) {
+            final active = selected?.name == preset.name;
+            return SizedBox(
+              width: 180,
+              child: InkWell(
+                onTap: _testing ? null : () => _selectPreset(preset),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: active
+                        ? Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.08)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: active
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        active
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                        size: 18,
+                        color: active
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              preset.name,
+                              overflow: TextOverflow.ellipsis,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              preset.description,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 }

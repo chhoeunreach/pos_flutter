@@ -93,11 +93,7 @@ class _StockListScreenState extends State<StockListScreen> {
                       );
                     }
                     final variation = firstProductVariation(item);
-                    final stockList = variation['stock'] as List? ?? [];
-                    final totalStock = stockList.fold<double>(
-                        0,
-                        (sum, s) =>
-                            sum + _asDouble((s as Map)['qty_available']));
+                    final totalStock = productStockTotal(item, variation);
                     final alert = _asDouble(item['alert_quantity']);
                     final isLow =
                         _asBool(item['enable_stock']) && totalStock <= alert;
@@ -132,7 +128,7 @@ class _StockListScreenState extends State<StockListScreen> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                                '$totalStock ${(item['unit'] as Map?)?['short_name'] ?? 'pcs'}',
+                                '$totalStock ${productUnitLabel(item)}',
                                 style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     color: isLow ? Colors.red : null)),

@@ -22,7 +22,8 @@ int _nextProductRowId = 1;
 int _generateProductRowId() => _nextProductRowId++;
 
 class PurchaseFormScreen extends StatefulWidget {
-  const PurchaseFormScreen({super.key});
+  final int? id;
+  const PurchaseFormScreen({super.key, this.id});
 
   @override
   State<PurchaseFormScreen> createState() => _PurchaseFormScreenState();
@@ -42,6 +43,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   bool _isLoadingSuppliers = true;
   bool _isLoadingLocations = true;
   bool _isLoadingProducts = true;
+  bool _isLoadingPurchase = false;
   bool _isSaving = false;
   bool _invoiceDetailsExpanded = true;
   String? _error;
@@ -56,6 +58,8 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
 
   String? _printerIp;
   int _printerPort = 9100;
+
+  bool get _isEditing => widget.id != null;
 
   @override
   void initState() {
@@ -84,6 +88,150 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
 
   Future<void> _loadData() async {
     await Future.wait([_loadSuppliers(), _loadLocations(), _loadProducts()]);
+    if (_isEditing && mounted) {
+      await _loadPurchaseData();
+    }
+  }
+
+  Future<void> _loadPurchaseData() async {
+    setState(() => _isLoadingPurchase = true);
+    try {
+      final data =
+          await sl<TransactionRepository>().getPurchaseById(widget.id!);
+      if (!mounted) return;
+      _populateForm(data);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Failed to load purchase: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingPurchase = false);
+    }
+  }
+
+  void _populateForm(Map<String, dynamic> data) {
+    _supplierId = _asInt(data['contact_id']);
+    _locationId = _asInt(data['location_id']);
+    _status = data['status'] as String? ?? 'received';
+    _transactionDate =
+        DateTime.tryParse(data['transaction_date'] as String? ?? '') ??
+            DateTime.now();
+    _refController.text = data['ref_no'] as String? ?? '';
+    _notesController.text = data['additional_notes'] as String? ?? '';
+
+    for (final row in _productRows) {
+      row.dispose();
+    }
+    _productRows.clear();
+
+    final purchaseLines = data['purchase_lines'] as List<dynamic>? ?? [];
+    final groupedRows = <String, _ProductRow>{};
+    for (final rawLine in purchaseLines) {
+      if (rawLine is! Map) continue;
+      final line = Map<String, dynamic>.from(rawLine);
+      final productId = _asInt(line['product_id']);
+
+      Map<String, dynamic>? product;
+      for (final p in _availableProducts) {
+        if (_asInt(p['id']) == productId) {
+          product = p;
+          break;
+        }
+      }
+      product ??= {
+        'id': productId,
+        'name': _findProductName(line),
+      };
+
+      final variation = _findVariation(product, line);
+      final groupKey = _purchaseLineGroupKey(product, variation, line);
+      final row = groupedRows.putIfAbsent(groupKey, () {
+        final newRow = _ProductRow(
+          product: product!,
+          variation: variation,
+          localProductRowId: _generateProductRowId(),
+        );
+        for (final defaultLot in newRow.lots) {
+          defaultLot.dispose();
+        }
+        newRow.lots.clear();
+        _productRows.add(newRow);
+        return newRow;
+      });
+      final lot = _lotFromPurchaseLine(line);
+      row.lots.add(lot);
+    }
+
+    final paymentLines = data['payment_lines'] as List<dynamic>? ?? [];
+    final totalPayment = paymentLines.fold<double>(0, (sum, p) {
+      if (p is Map) return sum + _asDouble(p['amount']);
+      return sum;
+    });
+    if (totalPayment > 0) {
+      _paymentAmountController.text = _formatNumberInput(totalPayment);
+    }
+
+    setState(() {});
+  }
+
+  String _purchaseLineGroupKey(
+    Map<String, dynamic> product,
+    Map<String, dynamic> variation,
+    Map<String, dynamic> line,
+  ) {
+    final variationId = _asInt(variation['id']) ?? _asInt(line['variation_id']);
+    if (variationId != null) return 'variation:$variationId';
+
+    final sku = variation['sub_sku']?.toString().trim().toLowerCase();
+    if (sku != null && sku.isNotEmpty) return 'sku:$sku';
+
+    final productSku = product['sku']?.toString().trim().toLowerCase();
+    if (productSku != null && productSku.isNotEmpty) return 'sku:$productSku';
+
+    final productId = _asInt(product['id']) ?? _asInt(line['product_id']);
+    return 'product:${productId ?? _productRows.length}';
+  }
+
+  _LotRow _lotFromPurchaseLine(Map<String, dynamic> line) {
+    final lot = _LotRow();
+    lot.lotNumberCtrl.text = line['lot_number'] as String? ?? '';
+    lot.qtyCtrl.text = _formatQty(_asDouble(line['quantity']));
+    lot.purchasePriceCtrl.text =
+        _formatNumberInput(_asDouble(line['purchase_price']));
+    lot.purchasePriceIncTaxCtrl.text =
+        _formatNumberInput(_asDouble(line['purchase_price_inc_tax']));
+    lot.itemTaxCtrl.text = _formatNumberInput(_asDouble(line['item_tax']));
+    if (line['mfg_date'] != null) {
+      lot.mfgDate = DateTime.tryParse(line['mfg_date'] as String);
+    }
+    if (line['exp_date'] != null) {
+      lot.expDate = DateTime.tryParse(line['exp_date'] as String);
+    }
+    return lot;
+  }
+
+  String _findProductName(Map<String, dynamic> line) {
+    final product = line['product'];
+    if (product is Map) {
+      return product['name'] as String? ?? 'Product #${line['product_id']}';
+    }
+    return 'Product #${line['product_id']}';
+  }
+
+  Map<String, dynamic> _findVariation(
+      Map<String, dynamic> product, Map<String, dynamic> line) {
+    final variations = line['variations'];
+    if (variations is Map) {
+      return {
+        'id': variations['id'],
+        'name': variations['name'],
+        'sub_sku': variations['sub_sku'],
+        'default_purchase_price': line['purchase_price'],
+        'dpp_inc_tax': line['purchase_price_inc_tax'],
+        'sell_price_inc_tax': line['default_sell_price'] ??
+            _asDouble(line['purchase_price_inc_tax']),
+      };
+    }
+    return _firstVariation(product);
   }
 
   Future<void> _loadSuppliers() async {
@@ -306,16 +454,21 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     };
 
     try {
-      final res = await sl<TransactionRepository>().createPurchase(payload);
+      final repo = sl<TransactionRepository>();
+      final res = _isEditing
+          ? await repo.updatePurchase(widget.id!, payload)
+          : await repo.createPurchase(payload);
       if (res['success'] == true) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Purchase created'), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text(_isEditing ? 'Purchase updated' : 'Purchase created'),
+            backgroundColor: Colors.green,
+          ),
         );
         context.go('/purchases');
       } else {
-        _showError(res['message'] as String? ?? 'Failed to create purchase');
+        _showError(res['message'] as String? ?? 'Failed to save purchase');
       }
     } catch (e) {
       _showError(e.toString());
@@ -722,16 +875,20 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingSuppliers || _isLoadingLocations || _isLoadingProducts) {
+    if (_isLoadingSuppliers ||
+        _isLoadingLocations ||
+        _isLoadingProducts ||
+        _isLoadingPurchase) {
       return Scaffold(
-        appBar: AppBar(title: const Text('New Purchase')),
+        appBar:
+            AppBar(title: Text(_isEditing ? 'Edit Purchase' : 'New Purchase')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New Purchase'),
+        title: Text(_isEditing ? 'Edit Purchase' : 'New Purchase'),
         actions: [
           if (_printerIp != null && _printerIp!.isNotEmpty)
             Padding(
@@ -792,7 +949,11 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.save),
-                  label: Text(_isSaving ? 'Saving...' : 'Create Purchase'),
+                  label: Text(_isSaving
+                      ? 'Saving...'
+                      : _isEditing
+                          ? 'Update Purchase'
+                          : 'Create Purchase'),
                 ),
               ),
             ],
@@ -1697,13 +1858,7 @@ class _ProductRow {
   String get sku =>
       variation['sub_sku']?.toString() ?? product['sku']?.toString() ?? '';
   String get unit {
-    final unit = product['unit'];
-    if (unit is Map) {
-      return unit['short_name']?.toString() ??
-          unit['name']?.toString() ??
-          'pcs';
-    }
-    return unit?.toString() ?? 'pcs';
+    return productUnitLabel(product);
   }
 
   double get lotsTotal => lots.fold(0, (s, l) => s + l.subtotal);

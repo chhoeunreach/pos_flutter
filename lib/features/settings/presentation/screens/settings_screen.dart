@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/config/app_config.dart';
+import '../../../../core/config/server_presets.dart';
 import '../../../../core/di/injection.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -165,10 +166,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Card(
                 child: Column(children: [
               ListTile(
-                title: const Text('Change Server URL'),
-                subtitle:
-                    const Text('Disconnect and connect to a different server'),
+                title: Text(
+                    'Current Server: ${ServerPresets.displayName(AppConfig.serverUrl)}'),
+                subtitle: Text(AppConfig.serverUrl ??
+                    'Disconnect and connect to a different server'),
                 leading: const Icon(Icons.dns_outlined),
+                trailing: const Icon(Icons.chevron_right),
                 onTap: () => _changeServer(context),
               ),
             ])),

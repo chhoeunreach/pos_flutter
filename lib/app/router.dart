@@ -125,6 +125,10 @@ GoRouter createAppRouter(AuthBloc authBloc) {
                     path: 'create',
                     builder: (context, state) => const PurchaseFormScreen()),
                 GoRoute(
+                    path: ':id/edit',
+                    builder: (context, state) => PurchaseFormScreen(
+                        id: int.parse(state.pathParameters['id']!))),
+                GoRoute(
                     path: ':id',
                     builder: (context, state) => PurchaseDetailScreen(
                         id: int.parse(state.pathParameters['id']!))),
