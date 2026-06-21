@@ -200,13 +200,14 @@
 				00EBFC3EC1357EC24343643D /* [CP] Check Pods Manifest.lock */,
 				9740EEB61CF901F6004384FC /* Run Script */,
 				97C146EA1CF9000F007C117D /* Sources */,
-				97C146EB1CF9000F007C117D /* Frameworks */,
-				97C146EC1CF9000F007C117D /* Resources */,
-				9705A1C41CF9048500538489 /* Embed Frameworks */,
-				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
-				1B5BF93C73C8C15BFCD0FEF0 /* [CP] Embed Pods Frameworks */,
-				B029FB9147B355D12E099F03 /* [CP] Copy Pods Resources */,
-			);
+					97C146EB1CF9000F007C117D /* Frameworks */,
+					97C146EC1CF9000F007C117D /* Resources */,
+					9705A1C41CF9048500538489 /* Embed Frameworks */,
+					3B06AD1E1E4923F5004D2608 /* Thin Binary */,
+					1B5BF93C73C8C15BFCD0FEF0 /* [CP] Embed Pods Frameworks */,
+					B029FB9147B355D12E099F03 /* [CP] Copy Pods Resources */,
+					CF5F24182D1D4B9900D5D001 /* Generate objective_c dSYM */,
+				);
 			buildRules = (
 			);
 			dependencies = (
@@ -375,9 +376,9 @@
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
 		};
-		B029FB9147B355D12E099F03 /* [CP] Copy Pods Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
+			B029FB9147B355D12E099F03 /* [CP] Copy Pods Resources */ = {
+				isa = PBXShellScriptBuildPhase;
+				buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
@@ -389,10 +390,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-resources.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-/* End PBXShellScriptBuildPhase section */
+				shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-resources.sh\"\n";
+				showEnvVarsInLog = 0;
+			};
+			CF5F24182D1D4B9900D5D001 /* Generate objective_c dSYM */ = {
+				isa = PBXShellScriptBuildPhase;
+				alwaysOutOfDate = 1;
+				buildActionMask = 2147483647;
+				files = (
+				);
+				inputPaths = (
+				);
+				name = "Generate objective_c dSYM";
+				outputPaths = (
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+				shellPath = /bin/sh;
+				shellScript = "set -e\nFRAMEWORK_BINARY=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/objective_c.framework/objective_c\"\nif [ -f \"$FRAMEWORK_BINARY\" ]; then\n  mkdir -p \"${DWARF_DSYM_FOLDER_PATH}\"\n  xcrun dsymutil \"$FRAMEWORK_BINARY\" -o \"${DWARF_DSYM_FOLDER_PATH}/objective_c.framework.dSYM\"\nfi\n";
+			};
+	/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		331C807D294A63A400263BE5 /* Sources */ = {
@@ -472,7 +488,7 @@
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
@@ -654,7 +670,7 @@
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
