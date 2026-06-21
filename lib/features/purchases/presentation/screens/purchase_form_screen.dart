@@ -1,13 +1,11 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -16,6 +14,8 @@ import '../../../../core/repositories/interfaces.dart';
 import '../../../../core/storage/secure_storage.dart';
 import '../../../../core/utils/money_formatter.dart';
 import '../../../../core/utils/product_variation_utils.dart';
+import '../../../../core/widgets/inline_lot_scanner.dart';
+import '../../../../core/widgets/inline_serial_ocr_scanner.dart';
 import '../../../../core/widgets/sku_chip.dart';
 import '../../../products/presentation/widgets/product_search_dialog.dart';
 
@@ -417,8 +417,21 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
       final shouldOpen = !row.isScanningLot;
       for (final productRow in _productRows) {
         productRow.isScanningLot = false;
+        productRow.isScanningSerialOcr = false;
       }
       row.isScanningLot = shouldOpen;
+    });
+  }
+
+  void _toggleSerialOcrScanner(int productIndex) {
+    setState(() {
+      final row = _productRows[productIndex];
+      final shouldOpen = !row.isScanningSerialOcr;
+      for (final productRow in _productRows) {
+        productRow.isScanningLot = false;
+        productRow.isScanningSerialOcr = false;
+      }
+      row.isScanningSerialOcr = shouldOpen;
     });
   }
 
@@ -446,6 +459,10 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
     _addScannedLot(productIndex, code);
     HapticFeedback.lightImpact();
     _playLotSuccessSound();
+  }
+
+  void _handleSerialOcrDetect(int productIndex, SerialOcrResult result) {
+    _handleLotScan(productIndex, result.serialNumber);
   }
 
   void _playLotSuccessSound() {
@@ -1460,7 +1477,9 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                   Expanded(child: productInfo),
                   const SizedBox(width: 12),
                   SizedBox(
-                    width: row.isScanningLot ? 240 : 340,
+                    width: row.isScanningLot || row.isScanningSerialOcr
+                        ? 240
+                        : 340,
                     child: controls,
                   ),
                   menu,
@@ -1476,7 +1495,7 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        if (row.isScanningLot) ...[
+                        if (row.isScanningLot || row.isScanningSerialOcr) ...[
                           _buildInlineLotScanner(index, row),
                           const SizedBox(height: 8),
                         ],
@@ -1788,7 +1807,8 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
   }
 
   Widget _buildLotImportSwitch(int productIndex, _ProductRow row) {
-    if (row.isScanningLot) {
+    if (row.isScanningLot || row.isScanningSerialOcr) {
+      final isOcr = row.isScanningSerialOcr;
       return Row(
         children: [
           Expanded(
@@ -1796,23 +1816,31 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
               height: 44,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                border: Border.all(color: Colors.blue.shade100),
+                color: isOcr ? Colors.green.shade50 : Colors.blue.shade50,
+                border: Border.all(
+                  color: isOcr ? Colors.green.shade100 : Colors.blue.shade100,
+                ),
                 borderRadius: BorderRadius.circular(8),
               ),
               alignment: Alignment.centerLeft,
               child: Row(
                 children: [
-                  Icon(Icons.qr_code_scanner,
-                      color: Colors.blue.shade700, size: 18),
+                  Icon(
+                    isOcr
+                        ? Icons.document_scanner_outlined
+                        : Icons.qr_code_scanner,
+                    color: isOcr ? Colors.green.shade700 : Colors.blue.shade700,
+                    size: 18,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Scan lot mode',
+                      isOcr ? 'Serial OCR mode' : 'Scan lot mode',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.blue.shade800,
+                        color:
+                            isOcr ? Colors.green.shade800 : Colors.blue.shade800,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1859,122 +1887,29 @@ class _PurchaseFormScreenState extends State<PurchaseFormScreen> {
           onPressed: () => _toggleLotScanner(productIndex),
           icon: const Icon(Icons.qr_code_scanner_outlined),
         ),
+        const SizedBox(width: 6),
+        IconButton.outlined(
+          tooltip: 'OCR serial number',
+          onPressed: () => _toggleSerialOcrScanner(productIndex),
+          icon: const Icon(Icons.document_scanner_outlined),
+        ),
       ],
     );
   }
 
   Widget _buildInlineLotScanner(int productIndex, _ProductRow row) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: SizedBox(
-        height: 132,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final windowWidth = math.min(constraints.maxWidth - 28, 420.0);
-            const windowHeight = 54.0;
-            final scanWindow = Rect.fromCenter(
-              center: Offset(
-                constraints.maxWidth / 2,
-                constraints.maxHeight / 2,
-              ),
-              width: windowWidth,
-              height: windowHeight,
-            );
+    if (row.isScanningSerialOcr) {
+      return InlineSerialOcrScanner(
+        key: ValueKey('purchase-serial-ocr-${row.localProductRowId}'),
+        scannedSerialCount: row.scannedLotCount,
+        onDetect: (result) => _handleSerialOcrDetect(productIndex, result),
+      );
+    }
 
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                MobileScanner(
-                  fit: BoxFit.cover,
-                  scanWindow: scanWindow,
-                  placeholderBuilder: (context, child) => const ColoredBox(
-                    color: Colors.black,
-                    child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                  errorBuilder: (context, error, child) => ColoredBox(
-                    color: Colors.black,
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(
-                          error.errorDetails?.message ??
-                              'Camera unavailable. Check camera permission.',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  onDetect: (capture) {
-                    for (final barcode in capture.barcodes) {
-                      _handleLotScan(productIndex, barcode.rawValue);
-                    }
-                  },
-                ),
-                Positioned.fromRect(
-                  rect: scanWindow,
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.12),
-                        border: Border.all(color: Colors.amberAccent, width: 3),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Container(
-                          height: 2,
-                          margin: const EdgeInsets.symmetric(
-                              horizontal: 28, vertical: 8),
-                          color: Colors.amberAccent,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 8,
-                  right: 8,
-                  bottom: 8,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.62),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.qr_code_scanner,
-                              color: Colors.white, size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              row.scannedLotCount == 0
-                                  ? 'Place barcode inside the frame.'
-                                  : '${row.scannedLotCount} lot(s) scanned. Keep scanning.',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 12),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+    return InlineLotScanner(
+      key: ValueKey('purchase-lot-scanner-${row.localProductRowId}'),
+      scannedLotCount: row.scannedLotCount,
+      onDetect: (code) => _handleLotScan(productIndex, code),
     );
   }
 
@@ -2171,6 +2106,7 @@ class _ProductRow {
   final typedLotFocus = FocusNode();
   final List<_LotRow> lots = [];
   bool isScanningLot = false;
+  bool isScanningSerialOcr = false;
   bool lotsExpanded = true;
   String? lastScannedLot;
   DateTime? lastScannedAt;

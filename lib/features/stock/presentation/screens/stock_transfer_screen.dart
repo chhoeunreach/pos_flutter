@@ -1,16 +1,15 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../../core/di/injection.dart';
 import '../../../../core/repositories/interfaces.dart';
 import '../../../../core/utils/money_formatter.dart';
 import '../../../../core/utils/product_variation_utils.dart';
 import '../../../../core/widgets/error_widget.dart';
+import '../../../../core/widgets/inline_lot_scanner.dart';
 import '../../../../core/widgets/loading_widget.dart';
 import '../../../../core/widgets/sku_chip.dart';
 import '../../../products/presentation/widgets/product_search_dialog.dart';
@@ -1494,117 +1493,12 @@ class _InlineLotScanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: SizedBox(
-        height: 132,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final windowWidth = math.min(constraints.maxWidth - 28, 420.0);
-            const windowHeight = 54.0;
-            final scanWindow = Rect.fromCenter(
-              center: Offset(
-                constraints.maxWidth / 2,
-                constraints.maxHeight / 2,
-              ),
-              width: windowWidth,
-              height: windowHeight,
-            );
-
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                MobileScanner(
-                  fit: BoxFit.cover,
-                  scanWindow: scanWindow,
-                  placeholderBuilder: (context, child) => const ColoredBox(
-                    color: Colors.black,
-                    child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                  errorBuilder: (context, error, child) => ColoredBox(
-                    color: Colors.black,
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(
-                          error.errorDetails?.message ??
-                              'Camera unavailable. Check camera permission.',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  onDetect: (capture) {
-                    for (final barcode in capture.barcodes) {
-                      onLotScan(barcode.rawValue);
-                    }
-                  },
-                ),
-                Positioned.fromRect(
-                  rect: scanWindow,
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.12),
-                        border: Border.all(color: Colors.amberAccent, width: 3),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Container(
-                          height: 2,
-                          margin: const EdgeInsets.symmetric(
-                              horizontal: 28, vertical: 8),
-                          color: Colors.amberAccent,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 8,
-                  right: 8,
-                  bottom: 8,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.62),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.qr_code_scanner,
-                              color: Colors.white, size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              product.scannedLotCount == 0
-                                  ? 'Place barcode inside the frame.'
-                                  : '${product.scannedLotCount} lot(s) scanned. Keep scanning.',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 12),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
+    return InlineLotScanner(
+      key: ValueKey(
+        'transfer-lot-scanner-${product.productId}-${product.variationId}',
       ),
+      scannedLotCount: product.scannedLotCount,
+      onDetect: onLotScan,
     );
   }
 }

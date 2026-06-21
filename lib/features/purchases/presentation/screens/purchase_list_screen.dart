@@ -40,88 +40,139 @@ class _PurchaseListScreenState extends State<PurchaseListScreen> {
           }
           return RefreshIndicator(
               onRefresh: () async => _bloc.add(LoadPurchasesEvent()),
-              child: ListView.separated(
-                padding: const EdgeInsets.all(12),
-                itemCount: state.purchases.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, i) {
-                  final p = state.purchases[i];
-                  final contact = p['contact'] as Map<String, dynamic>? ?? {};
-                  final isDue = p['payment_status'] == 'due';
-                  final purchaseId = _asInt(p['id']);
-                  return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        title: Text(p['ref_no'] ?? '',
-                            style: Theme.of(context).textTheme.titleMedium),
-                        subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  headingRowColor: WidgetStateProperty.all(
+                      Theme.of(context).colorScheme.surfaceContainerHighest),
+                  columnSpacing: 16,
+                  columns: const [
+                    DataColumn(label: Text('Action')),
+                    DataColumn(label: Text('Date')),
+                    DataColumn(label: Text('Reference No')),
+                    DataColumn(label: Text('Location')),
+                    DataColumn(label: Text('Supplier')),
+                    DataColumn(label: Text('Purchase Status')),
+                    DataColumn(label: Text('Payment Status')),
+                    DataColumn(label: Text('Grand Total')),
+                    DataColumn(label: Text('Total Qty')),
+                    DataColumn(label: Text('Payment Due')),
+                    DataColumn(label: Text('Added By')),
+                  ],
+                  rows: [
+                    for (final p in state.purchases)
+                      DataRow(
+                        onSelectChanged: (_) =>
+                            context.go('/purchases/${p['id']}'),
+                        cells: [
+                          DataCell(Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                  '${contact['name'] ?? '-'} \u2022 ${p['transaction_date'] ?? ''}'),
-                              Row(children: [
-                                Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                        color: isDue
-                                            ? Colors.orange[50]
-                                            : Colors.green[50],
-                                        borderRadius:
-                                            BorderRadius.circular(12)),
-                                    child: Text(
-                                        p['payment_status']
-                                                ?.toString()
-                                                .toUpperCase() ??
-                                            '',
-                                        style: TextStyle(
-                                            fontSize: 11,
-                                            color: isDue
-                                                ? Colors.orange[700]
-                                                : Colors.green[700]))),
-                                const SizedBox(width: 8),
-                                Text(p['status'] ?? '',
-                                    style:
-                                        Theme.of(context).textTheme.bodySmall),
-                              ]),
-                            ]),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                                MoneyFormatter.instance
-                                    .format(p['final_total']),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.bold)),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              tooltip: 'Edit purchase',
-                              icon: const Icon(Icons.edit_outlined, size: 20),
-                              onPressed: purchaseId == null
-                                  ? null
-                                  : () => context.go(
-                                      '/purchases/$purchaseId/edit',
-                                    ),
-                            ),
-                            IconButton(
-                              tooltip: 'Delete purchase',
-                              icon: Icon(Icons.delete_outline,
-                                  size: 20, color: Colors.red[600]),
-                              onPressed: purchaseId == null
-                                  ? null
-                                  : () => _confirmDelete(context, purchaseId),
-                            ),
-                          ],
-                        ),
-                        onTap: () => context.go('/purchases/${p['id']}'),
-                      ));
-                },
+                              IconButton(
+                                tooltip: 'Edit purchase',
+                                icon:
+                                    const Icon(Icons.edit_outlined, size: 18),
+                                onPressed: () => context.go(
+                                    '/purchases/${_asInt(p['id'])}/edit'),
+                              ),
+                              IconButton(
+                                tooltip: 'Delete purchase',
+                                icon: Icon(Icons.delete_outline,
+                                    size: 18, color: Colors.red[600]),
+                                onPressed: () =>
+                                    _confirmDelete(context, _asInt(p['id'])!),
+                              ),
+                            ],
+                          )),
+                          DataCell(Text(p['transaction_date'] ?? '-',
+                              style: const TextStyle(fontSize: 13))),
+                          DataCell(Text(p['ref_no'] ?? '-',
+                              style: const TextStyle(fontSize: 13))),
+                          DataCell(Text(
+                              (p['location']
+                                      as Map<String, dynamic>?)?['name']
+                                  ?.toString() ??
+                                  '-',
+                              style: const TextStyle(fontSize: 13))),
+                          DataCell(Text(
+                              (p['contact']
+                                      as Map<String, dynamic>?)?['name']
+                                  ?.toString() ??
+                                  '-',
+                              style: const TextStyle(fontSize: 13))),
+                          DataCell(_statusChip(
+                              p['status']?.toString() ?? '', context)),
+                          DataCell(_paymentStatusChip(
+                              p['payment_status']?.toString() ?? '', context)),
+                          DataCell(Text(
+                              MoneyFormatter.instance.format(p['final_total']),
+                              style: const TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.bold))),
+                          DataCell(Text(
+                              _totalQty(p),
+                              style: const TextStyle(fontSize: 13))),
+                          DataCell(Text(
+                              MoneyFormatter.instance.format(p['due_amount']),
+                              style: const TextStyle(fontSize: 13))),
+                          DataCell(Text(
+                              (p['created_by_user']
+                                      as Map<String, dynamic>?)?['full_name']
+                                  ?.toString() ??
+                                  '-',
+                              style: const TextStyle(fontSize: 13))),
+                        ],
+                      ),
+                  ],
+                ),
               ));
         }),
       ),
     );
+  }
+
+  String _totalQty(Map<String, dynamic> purchase) {
+    final topQty = _toDouble(purchase['total_qty']);
+    if (topQty != null) {
+      return topQty == topQty.roundToDouble()
+          ? topQty.toStringAsFixed(0)
+          : topQty.toStringAsFixed(2);
+    }
+    final lines = purchase['purchase_lines'];
+    if (lines is! List) return '-';
+    double total = 0;
+    for (final line in lines) {
+      if (line is Map<String, dynamic>) {
+        total += _toDouble(line['quantity']) ?? 0;
+      }
+    }
+    return total == total.roundToDouble()
+        ? total.toStringAsFixed(0)
+        : total.toStringAsFixed(2);
+  }
+
+  Widget _paymentStatusChip(String status, BuildContext context) {
+    final isDue = status == 'due';
+    return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+            color: isDue ? Colors.orange[50] : Colors.green[50],
+            borderRadius: BorderRadius.circular(12)),
+        child: Text(status.toUpperCase(),
+            style: TextStyle(
+                fontSize: 11,
+                color: isDue ? Colors.orange[700] : Colors.green[700])));
+  }
+
+  Widget _statusChip(String status, BuildContext context) {
+    return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(12)),
+        child: Text(status.toUpperCase(),
+            style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurfaceVariant)));
   }
 
   Future<void> _confirmDelete(BuildContext context, int purchaseId) async {
@@ -151,6 +202,11 @@ class _PurchaseListScreenState extends State<PurchaseListScreen> {
       const SnackBar(content: Text('Deleting purchase...')),
     );
   }
+}
+
+double? _toDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
 }
 
 int? _asInt(dynamic value) {
