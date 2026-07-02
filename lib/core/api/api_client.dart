@@ -41,8 +41,12 @@ class ApiClient {
     T Function(dynamic)? fromJson,
   }) async {
     final response = await _dio.get(path, queryParameters: queryParams);
+    final json = response.data;
+    if (json == null) {
+      return ApiResponse(success: false, message: 'Empty response from server');
+    }
     return ApiResponse.fromJson(
-        response.data as Map<String, dynamic>, fromJson);
+        json as Map<String, dynamic>, fromJson);
   }
 
   Future<PaginatedResponse<T>> getPaginated<T>(
@@ -51,8 +55,12 @@ class ApiClient {
     required T Function(dynamic) fromJson,
   }) async {
     final response = await _dio.get(path, queryParameters: queryParams);
+    final json = response.data;
+    if (json == null) {
+      return PaginatedResponse(success: false, message: 'Empty response from server');
+    }
     return PaginatedResponse.fromJson(
-        response.data as Map<String, dynamic>, fromJson);
+        json as Map<String, dynamic>, fromJson);
   }
 
   Future<ApiResponse<T>> post<T>(
@@ -61,8 +69,12 @@ class ApiClient {
     T Function(dynamic)? fromJson,
   }) async {
     final response = await _dio.post(path, data: data);
+    final json = response.data;
+    if (json == null) {
+      return ApiResponse(success: false, message: 'Empty response from server');
+    }
     return ApiResponse.fromJson(
-        response.data as Map<String, dynamic>, fromJson);
+        json as Map<String, dynamic>, fromJson);
   }
 
   Future<ApiResponse<T>> put<T>(
@@ -71,8 +83,12 @@ class ApiClient {
     T Function(dynamic)? fromJson,
   }) async {
     final response = await _dio.put(path, data: data);
+    final json = response.data;
+    if (json == null) {
+      return ApiResponse(success: false, message: 'Empty response from server');
+    }
     return ApiResponse.fromJson(
-        response.data as Map<String, dynamic>, fromJson);
+        json as Map<String, dynamic>, fromJson);
   }
 
   Future<ApiResponse<T>> delete<T>(
@@ -80,8 +96,12 @@ class ApiClient {
     T Function(dynamic)? fromJson,
   }) async {
     final response = await _dio.delete(path);
+    final json = response.data;
+    if (json == null) {
+      return ApiResponse(success: false, message: 'Empty response from server');
+    }
     return ApiResponse.fromJson(
-        response.data as Map<String, dynamic>, fromJson);
+        json as Map<String, dynamic>, fromJson);
   }
 
   Future<ApiResponse<T>> upload<T>(
@@ -94,8 +114,12 @@ class ApiClient {
         options: Options(
           contentType: 'multipart/form-data',
         ));
+    final json = response.data;
+    if (json == null) {
+      return ApiResponse(success: false, message: 'Empty response from server');
+    }
     return ApiResponse.fromJson(
-        response.data as Map<String, dynamic>, fromJson);
+        json as Map<String, dynamic>, fromJson);
   }
 
   Future<void> setToken(String token) async {
@@ -107,6 +131,8 @@ class ApiClient {
     _dio.options.headers.remove('Authorization');
     await _storage.clearAuthData();
   }
+
+  static void Function()? onUnauthorized;
 }
 
 class _AuthInterceptor extends Interceptor {

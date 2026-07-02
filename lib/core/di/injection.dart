@@ -51,6 +51,8 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton<TodoBloc>(() => TodoBloc(sl()));
 }
 
+
+
 // ═══════════════════════════════════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════════════════════════════════
